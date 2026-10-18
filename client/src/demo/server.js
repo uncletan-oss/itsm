@@ -1,19 +1,30 @@
 /**
- * Backend demo yang berjalan sepenuhnya di browser (untuk GitHub Pages / tanpa server).
- * Meniru kontrak REST API server/ dan memakai logika bisnis yang sama dari shared/.
- * Data disimpan di localStorage browser masing-masing pengguna.
+ * Backend demo multi-tenant yang berjalan sepenuhnya di browser (untuk GitHub Pages / tanpa server).
+ * Meniru kontrak REST API server/ dan memakai logika bisnis yang sama dari shared/
+ * (workflow, SLA, prioritas, matriks hak akses, paket, notifikasi, dashboard & laporan).
+ * Data disimpan di localStorage browser masing-masing pengunjung.
  */
-import { ROLES } from '../../../shared/roles.mjs';
+import { ROLES, PLATFORM_ROLE } from '../../../shared/roles.mjs';
 import { checkTransition } from '../../../shared/workflows.mjs';
 import { computeDueDates, applyTransition, slaStatus } from '../../../shared/sla.mjs';
 import { frameworks, industries } from '../../../shared/frameworks.mjs';
+import { serviceStatuses, publicMaintenance, publicArticle, publicService } from '../../../shared/public.mjs';
+import { DEFAULT_PERMISSIONS, PAGES, effectivePermissions, sanitizeOverrides, canPage } from '../../../shared/permissions.mjs';
+import { PLANS, PLAN_KEYS, validateSlug } from '../../../shared/plans.mjs';
+import { notificationsFor } from '../../../shared/notify.mjs';
+import { computeDashboard, computeReports, computeMyWork } from '../../../shared/insights.mjs';
 import { RESOURCES, hasRole, isRequesterOnly, same } from './registry.js';
 import { seed, DEMO_PASSWORD } from './seed.js';
-import { serviceStatuses, publicMaintenance, publicArticle, publicService } from '../../../shared/public.mjs';
 
-const KEY = 'itsm_demo_db_v2';
+const KEY = 'itsm_demo_db_v3';
 const NAME_KEYED = ['services', 'configuration-items', 'assets', 'vendors', 'continuity', 'architecture', 'projects', 'sprints', 'sla-policies'];
-const ALWAYS_PROTECTED = ['_id', 'number', 'activities', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'sla', '__v', 'allowedTransitions', 'slaStatus'];
+const ALWAYS_PROTECTED = ['_id', 'id', 'tenant', 'number', 'activities', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'sla', '__v', 'allowedTransitions', 'slaStatus'];
+const DEFAULT_SLA = [[1, 15, 240], [2, 30, 480], [3, 120, 1440], [4, 480, 4320]];
+const DEFAULT_CATALOG = [
+  { name: 'Reset Password', requestCategory: 'Akun', description: 'Reset password akun domain/email' },
+  { name: 'Permintaan Akses Aplikasi', requestCategory: 'Akses', description: 'Hak akses ke aplikasi bisnis', requiresApproval: true },
+  { name: 'Permintaan Perangkat Baru', requestCategory: 'Perangkat Keras', description: 'Laptop, monitor, atau perangkat pendukung', requiresApproval: true },
+];
 
 class DemoError extends Error {
   constructor(status, message, details) {
@@ -26,6 +37,7 @@ class DemoError extends Error {
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const newId = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, '0')).join('');
 const idOf = (v) => (v && typeof v === 'object' ? v._id : v);
+const nowIso = () => new Date().toISOString();
 
 let db = null;
 function load() {
@@ -43,7 +55,7 @@ function load() {
   return db;
 }
 function emptyDb() {
-  return { users: [], counters: {}, audit: [], settings: { _id: 'org', organizationName: 'Organisasi Saya', industry: 'general', enabledFrameworks: [], timezone: 'Asia/Jakarta', dataResidency: 'Indonesia' }, ...Object.fromEntries(Object.keys(RESOURCES).map((k) => [k, []])) };
+  return { tenants: [], users: [], counters: {}, audit: [], notifications: [], ...Object.fromEntries(Object.keys(RESOURCES).map((k) => [k, []])) };
 }
 function save() {
   try {
@@ -58,15 +70,16 @@ export function resetDemo() {
   load();
 }
 
-const nextNumber = (prefix) => {
-  db.counters[prefix] = (db.counters[prefix] || 0) + 1;
-  return `${prefix}${String(db.counters[prefix]).padStart(6, '0')}`;
+const nextNumber = (tenant, prefix) => {
+  const k = `${tenant}:${prefix}`;
+  db.counters[k] = (db.counters[k] || 0) + 1;
+  return `${prefix}${String(db.counters[k]).padStart(6, '0')}`;
 };
 
-function audit(user, action, resource, record, changes) {
+function audit(ctx, action, resource, record, changes) {
   db.audit.push({
-    _id: newId(), at: new Date().toISOString(), actor: user?._id, actorName: user?.name, action, resource,
-    recordId: record?._id, recordNumber: record?.number || record?.name || record?.title, changes, ip: 'browser (demo)',
+    _id: newId(), tenant: ctx.tenant?._id ?? null, at: nowIso(), actor: ctx.user?._id, actorName: ctx.user?.name, action, resource,
+    recordId: record?._id, recordNumber: record?.number || record?.slug || record?.name || record?.title, changes, ip: 'browser (demo)',
   });
 }
 function diff(before, after, keys) {
@@ -76,6 +89,18 @@ function diff(before, after, keys) {
     if (JSON.stringify(before?.[k] ?? null) !== JSON.stringify(after?.[k] ?? null)) out[k] = { from: before?.[k] ?? null, to: after?.[k] ?? null };
   }
   return out;
+}
+
+function notify(ctx, event) {
+  for (const n of notificationsFor({ ...event, actor: ctx.user })) {
+    let ids = n.userIds || [];
+    if (n.roles?.length) {
+      ids = [...ids, ...db.users.filter((u) => u.tenant === ctx.tenant._id && u.active && u.roles.some((r) => n.roles.includes(r)) && u._id !== ctx.user._id).map((u) => u._id)];
+    }
+    for (const user of new Set(ids)) {
+      db.notifications.push({ _id: newId(), tenant: ctx.tenant._id, user, title: n.title, body: n.body, kind: n.kind || 'info', link: n.link, read: false, createdAt: nowIso() });
+    }
+  }
 }
 
 const publicUser = (u) => u && { _id: u._id, name: u.name, email: u.email, department: u.department };
@@ -93,6 +118,17 @@ function sanitize(body, protectedKeys) {
   return out;
 }
 
+/** Tolak referensi ke record tenant lain (cermin validateRefs di server). */
+function validateRefs(name, updates, tenant) {
+  for (const [k, coll] of Object.entries(RESOURCES[name].refs || {})) {
+    const v = updates[k];
+    if (v == null) continue;
+    const ids = (Array.isArray(v) ? v : [v]).filter(Boolean);
+    const pool = coll === 'users' ? db.users : db[coll];
+    if (!ids.every((x) => pool.some((r) => r._id === x && r.tenant === tenant))) throw new DemoError(400, `Referensi tidak ditemukan pada ${k}`);
+  }
+}
+
 function reviveSla(sla) {
   if (!sla) return sla;
   const s = { ...sla };
@@ -103,7 +139,7 @@ function reviveSla(sla) {
 function applySla(doc, appliesTo, priorityChanged) {
   if (!doc.priority || !priorityChanged) return;
   if (['resolved', 'fulfilled', 'closed', 'cancelled'].includes(doc.status)) return;
-  const policy = db['sla-policies'].find((p) => p.appliesTo === appliesTo && Number(p.priority) === doc.priority && p.active !== false);
+  const policy = db['sla-policies'].find((p) => p.tenant === doc.tenant && p.appliesTo === appliesTo && Number(p.priority) === doc.priority && p.active !== false);
   if (!policy) return;
   const due = computeDueDates(doc.createdAt || new Date(), policy);
   const pausedMs = (doc.sla?.pausedMinutes || 0) * 60000;
@@ -145,22 +181,26 @@ function sortBy(items, spec) {
   });
 }
 
-function scoped(name, user) {
-  const def = RESOURCES[name];
-  const fn = def.scope?.(user);
-  return fn ? db[name].filter(fn) : db[name];
+const tenantItems = (name, ctx) => db[name].filter((d) => d.tenant === ctx.tenant._id);
+function scoped(name, ctx) {
+  const fn = RESOURCES[name].scope?.(ctx.user);
+  const items = tenantItems(name, ctx);
+  return fn ? items.filter(fn) : items;
 }
-
-function findDoc(name, id, user) {
-  const doc = scoped(name, user).find((d) => d._id === id);
+function findDoc(name, id, ctx) {
+  const doc = scoped(name, ctx).find((d) => d._id === id);
   if (!doc) throw new DemoError(404, `${RESOURCES[name].label} tidak ditemukan`);
   return doc;
 }
-
-function can(def, action, user) {
-  const roles = def[action] || (action === 'create' ? def.write : action === 'remove' ? [] : def.read);
-  if (!hasRole(user, roles)) throw new DemoError(403, `Anda tidak berwenang (${action}) pada ${def.label}`);
+const canRead = (ctx, name) => ctx.perms[name]?.enabled && hasRole(ctx.user, ctx.perms[name].read);
+function can(ctx, name, action) {
+  const p = ctx.perms[name];
+  if (!p.enabled) throw new DemoError(403, `Modul ${RESOURCES[name].label} tidak termasuk paket langganan workspace ini`);
+  if (!hasRole(ctx.user, p[action])) throw new DemoError(403, `Anda tidak berwenang (${action}) pada ${RESOURCES[name].label}`);
 }
+const requirePage = (ctx, page) => {
+  if (!canPage(ctx.user, page)) throw new DemoError(403, 'Akses ditolak untuk peran Anda');
+};
 
 function performTransition(name, doc, to, note, user) {
   const def = RESOURCES[name];
@@ -179,40 +219,46 @@ function performTransition(name, doc, to, note, user) {
 }
 
 // ---------- Resource handlers ----------
-function createRecord(name, body, user, { skipAuth = false, overrides = {} } = {}) {
+function createRecord(ctx, name, body, { trusted = false } = {}) {
   const def = RESOURCES[name];
-  if (!skipAuth) can(def, 'create', user);
+  const { user, tenant } = ctx;
+  if (!trusted) can(ctx, name, 'create');
   const protectedKeys = [...ALWAYS_PROTECTED, ...(def.protected || []), ...(def.workflow ? ['status'] : [])];
   const titleKey = NAME_KEYED.includes(name) ? 'name' : 'title';
-  const data = skipAuth ? { ...body } : sanitize(body, protectedKeys);
-  const now = new Date().toISOString();
-  const doc = { ...clone(def.defaults || {}), ...data, ...overrides, _id: newId(), activities: [], createdBy: user._id, updatedBy: user._id, createdAt: data.createdAt || now, updatedAt: now };
+  const data = trusted ? { ...body } : sanitize(body, protectedKeys);
+  if (!trusted) validateRefs(name, data, tenant._id);
+  const now = nowIso();
+  const doc = { ...clone(def.defaults || {}), ...data, _id: newId(), tenant: tenant._id, activities: [], createdBy: user._id, updatedBy: user._id, createdAt: data.createdAt || now, updatedAt: now };
   if (def.initial && !doc.status) doc.status = def.initial;
   if (!doc[titleKey]) throw new DemoError(400, 'Validasi gagal', { [titleKey]: `${titleKey === 'name' ? 'Nama' : 'Judul'} wajib diisi` });
   for (const [k, msg] of Object.entries(def.required || {})) if (!doc[k]) throw new DemoError(400, 'Validasi gagal', { [k]: msg });
   def.beforeCreate?.(doc, user, db);
   def.beforeSave?.(doc, user, true);
   if (def.sla) applySla(doc, def.sla, true);
-  if (def.prefix) doc.number = nextNumber(def.prefix);
+  if (def.prefix) doc.number = nextNumber(tenant._id, def.prefix);
   if (!def.noActivity) doc.activities.push({ _id: newId(), type: 'system', message: `${def.label} dibuat`, by: user._id, byName: user.name, at: now });
   const stored = clone(doc);
   db[name].push(stored);
-  audit(user, 'create', name, stored);
+  if (!trusted) {
+    audit(ctx, 'create', name, stored);
+    notify(ctx, { event: 'create', resource: name, label: def.label, doc: stored });
+  }
   return stored;
 }
 
-function resourceRoute(name, method, rest, body, query, user) {
+function resourceRoute(ctx, name, method, rest, body, query) {
   const def = RESOURCES[name];
-  const canWrite = hasRole(user, def.write);
+  const { user } = ctx;
+  const canWrite = ctx.perms[name].enabled && hasRole(user, ctx.perms[name].write);
   const protectedKeys = [...ALWAYS_PROTECTED, ...(def.protected || []), ...(def.workflow ? ['status'] : [])];
   const [id, action] = rest;
 
   if (!id && method === 'GET') {
-    can(def, 'read', user);
+    can(ctx, name, 'read');
     const { q, page = 1, limit = 25, sort, ...filters } = query;
-    let items = scoped(name, user);
+    let items = scoped(name, ctx);
     for (const [k, v] of Object.entries(filters)) {
-      if (typeof v !== 'string' || v === '') continue;
+      if (typeof v !== 'string' || v === '' || k === 'tenant') continue;
       const values = v.split(',');
       items = items.filter((d) => values.includes(String(d[k] ?? '')));
     }
@@ -231,90 +277,112 @@ function resourceRoute(name, method, rest, body, query, user) {
       total: items.length, page: pg, limit: lim,
     };
   }
-  if (!id && method === 'POST') return populate(name, createRecord(name, body, user), canWrite);
+  if (!id && method === 'POST') return populate(name, createRecord(ctx, name, body), canWrite);
 
-  const doc = findDoc(name, id, user);
+  const doc = findDoc(name, id, ctx);
   if (!action && method === 'GET') {
-    can(def, 'read', user);
+    can(ctx, name, 'read');
     return populate(name, doc, canWrite);
   }
+  if (action === 'related' && method === 'GET') {
+    can(ctx, name, 'read');
+    const groups = [];
+    for (const [other, odef] of Object.entries(RESOURCES)) {
+      if (!canRead(ctx, other)) continue;
+      const fields = Object.entries(odef.refs || {}).filter(([, c]) => c === name).map(([f]) => f);
+      if (!fields.length) continue;
+      const items = scoped(other, ctx)
+        .filter((d) => fields.some((f) => (Array.isArray(d[f]) ? d[f].includes(id) : d[f] === id)))
+        .slice(0, 10)
+        .map(({ _id, number, title, name: n, status, priority }) => ({ _id, number, title, name: n, status, priority }));
+      if (items.length) groups.push({ resource: other, label: odef.label, items });
+    }
+    return groups;
+  }
   if (!action && method === 'PUT') {
-    can(def, 'write', user);
+    can(ctx, name, 'write');
     const before = clone(doc);
     const updates = sanitize(body, protectedKeys);
+    validateRefs(name, updates, ctx.tenant._id);
     Object.assign(doc, updates);
     for (const [k, v] of Object.entries(updates)) if (v === undefined) delete doc[k];
     const prevPriority = before.priority;
     def.beforeSave?.(doc, user, false);
     if (def.sla) applySla(doc, def.sla, doc.priority !== prevPriority);
     doc.updatedBy = user._id;
-    doc.updatedAt = new Date().toISOString();
+    doc.updatedAt = nowIso();
     Object.assign(doc, clone(doc));
     const changes = diff(before, doc, [...Object.keys(updates), 'priority']);
-    if (Object.keys(changes).length) audit(user, 'update', name, doc, changes);
+    if (Object.keys(changes).length) audit(ctx, 'update', name, doc, changes);
+    notify(ctx, { event: 'update', resource: name, label: def.label, doc, before });
     return populate(name, doc, canWrite);
   }
   if (!action && method === 'DELETE') {
-    can(def, 'remove', user);
+    can(ctx, name, 'remove');
     db[name] = db[name].filter((d) => d._id !== id);
-    audit(user, 'delete', name, doc, { snapshot: doc });
+    audit(ctx, 'delete', name, doc, { snapshot: doc });
     return null;
   }
   if (action === 'comments' && method === 'POST') {
-    can(def, 'read', user);
+    can(ctx, name, 'read');
     const message = String(body.message || '').trim();
     if (!message) throw new DemoError(400, 'Pesan wajib diisi');
     const type = body.type === 'worknote' && canWrite ? 'worknote' : 'comment';
-    doc.activities.push({ _id: newId(), type, message, by: user._id, byName: user.name, at: new Date().toISOString() });
+    doc.activities.push({ _id: newId(), type, message, by: user._id, byName: user.name, at: nowIso() });
     return populate(name, doc, canWrite);
   }
   if (action === 'transition' && method === 'POST' && def.workflow) {
-    can(def, 'read', user);
+    can(ctx, name, 'read');
     const { to, note, ...fields } = body || {};
     if (!(canWrite || def.canTransition?.(user, doc, to))) throw new DemoError(403, 'Anda tidak berwenang mengubah status');
     const before = clone(doc);
     const updates = sanitize(fields, protectedKeys);
+    if (canWrite) validateRefs(name, updates, ctx.tenant._id);
     const draft = { ...clone(doc), ...(canWrite ? updates : {}) };
     const err = checkTransition(def.workflow, draft, to, user);
     if (err) throw new DemoError(422, err);
     if (canWrite) Object.assign(doc, updates);
     performTransition(name, doc, to, note, user);
-    audit(user, 'transition', name, doc, { status: { from: before.status, to }, ...diff(before, doc, Object.keys(updates)) });
+    audit(ctx, 'transition', name, doc, { status: { from: before.status, to }, ...diff(before, doc, Object.keys(updates)) });
+    notify(ctx, { event: 'transition', resource: name, label: def.label, doc, before, to });
     return populate(name, doc, canWrite);
   }
   if (name === 'changes' && action === 'approve' && method === 'POST') {
+    can(ctx, name, 'read');
     if (!hasRole(user, ['cab_member', 'change_manager'])) throw new DemoError(403, 'Hanya anggota CAB / Change Manager');
     if (doc.status !== 'cab_review') throw new DemoError(422, 'Change tidak sedang dalam CAB review');
     if ([doc.requester, doc.createdBy, doc.assignee].some((u) => u && u === user._id))
       throw new DemoError(422, 'Segregation of duties: pemohon/implementer tidak boleh menyetujui change ini');
     if (doc.approvals.some((a) => a.approver === user._id)) throw new DemoError(409, 'Anda sudah memberikan keputusan');
+    const before = clone(doc);
     const decision = body.decision === 'rejected' ? 'rejected' : 'approved';
-    doc.approvals.push({ _id: newId(), approver: user._id, approverName: user.name, decision, comment: body.comment, at: new Date().toISOString() });
+    doc.approvals.push({ _id: newId(), approver: user._id, approverName: user.name, decision, comment: body.comment, at: nowIso() });
     const approved = doc.approvals.filter((a) => a.decision === 'approved').length;
     const to = decision === 'rejected' ? 'rejected' : approved >= (doc.requiredApprovals || 1) ? 'approved' : null;
     if (to) {
       const err = checkTransition(def.workflow, doc, to, user, { viaApproval: true });
       if (err) throw new DemoError(422, err);
       performTransition(name, doc, to, `CAB: ${body.comment || decision}`, user);
+      notify(ctx, { event: 'transition', resource: name, label: def.label, doc, before, to });
     } else {
-      doc.activities.push({ _id: newId(), type: 'system', message: `CAB approval ${approved}/${doc.requiredApprovals} oleh ${user.name}`, by: user._id, byName: user.name, at: new Date().toISOString() });
+      doc.activities.push({ _id: newId(), type: 'system', message: `CAB approval ${approved}/${doc.requiredApprovals} oleh ${user.name}`, by: user._id, byName: user.name, at: nowIso() });
     }
-    audit(user, 'approval', name, doc, { decision, comment: body.comment });
+    audit(ctx, 'approval', name, doc, { decision, comment: body.comment });
     return populate(name, doc, canWrite);
   }
   throw new DemoError(404, `Endpoint tidak ditemukan: ${method} ${name}/${rest.join('/')}`);
 }
 
-// ---------- Compliance & dashboard ----------
-export function syncControls(frameworkIds, user) {
+// ---------- Tenant provisioning & kepatuhan ----------
+function syncControls(tenantId, frameworkIds, user) {
   let created = 0;
   for (const fw of frameworks.filter((f) => frameworkIds.includes(f.id))) {
     for (const ctl of fw.controls) {
-      const existing = db.controls.find((c) => c.frameworkId === fw.id && c.code === ctl.code);
+      const existing = db.controls.find((c) => c.tenant === tenantId && c.frameworkId === fw.id && c.code === ctl.code);
       const meta = { frameworkName: fw.name, title: ctl.title, domain: ctl.domain, nistFunction: ctl.nistFunction, guidance: ctl.guidance };
       if (existing) Object.assign(existing, meta);
       else {
-        db.controls.push({ _id: newId(), frameworkId: fw.id, code: ctl.code, ...meta, status: 'not_assessed', activities: [], createdBy: user._id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+        db.controls.push({ _id: newId(), tenant: tenantId, frameworkId: fw.id, code: ctl.code, ...meta, status: 'not_assessed', activities: [], createdBy: user?._id, createdAt: nowIso(), updatedAt: nowIso() });
         created += 1;
       }
     }
@@ -322,14 +390,40 @@ export function syncControls(frameworkIds, user) {
   return created;
 }
 
-function complianceSummary() {
-  const s = db.settings;
+function provisionTenant({ slug, name, industry = 'general', plan = 'professional', status = 'trial', admin }) {
+  const slugErr = validateSlug(slug);
+  if (slugErr) throw new DemoError(400, slugErr);
+  if (!PLANS[plan]) throw new DemoError(400, 'Paket tidak dikenal');
+  const ind = industries.find((i) => i.id === industry);
+  if (!ind) throw new DemoError(400, 'Industri tidak dikenal');
+  if (!name) throw new DemoError(400, 'Nama organisasi wajib diisi');
+  if (db.tenants.some((t) => t.slug === slug)) throw new DemoError(409, 'Kode workspace sudah dipakai');
+  if (!admin?.email || !admin?.name) throw new DemoError(400, 'Nama & email admin wajib diisi');
+  if (!admin.password || admin.password.length < 8) throw new DemoError(400, 'Password minimal 8 karakter');
+  const tenant = {
+    _id: newId(), slug, name, industry, plan, status, enabledFrameworks: ind.frameworks, timezone: 'Asia/Jakarta', dataResidency: 'Indonesia',
+    branding: {}, permissions: {}, createdAt: nowIso(), trialEndsAt: status === 'trial' ? new Date(Date.now() + 14 * 864e5).toISOString() : undefined,
+  };
+  db.tenants.push(tenant);
+  const user = { _id: newId(), tenant: tenant._id, name: admin.name, email: admin.email.toLowerCase(), password: admin.password, roles: ['admin'], active: true, createdAt: nowIso() };
+  db.users.push(user);
+  const ctx = { tenant, user };
+  for (const [p, r, res] of DEFAULT_SLA) {
+    createRecord(ctx, 'sla-policies', { name: `Incident P${p}`, appliesTo: 'incident', priority: p, responseMinutes: r, resolutionMinutes: res }, { trusted: true });
+    createRecord(ctx, 'sla-policies', { name: `Request P${p}`, appliesTo: 'request', priority: p, responseMinutes: r * 2, resolutionMinutes: res * 3 }, { trusted: true });
+  }
+  for (const svc of DEFAULT_CATALOG) createRecord(ctx, 'services', { requestable: true, criticality: 'low', ...svc }, { trusted: true });
+  syncControls(tenant._id, tenant.enabledFrameworks, user);
+  return { tenant, user };
+}
+
+function complianceSummary(tenant) {
   return {
-    industry: s.industry,
-    summary: s.enabledFrameworks.map((id) => {
+    industry: tenant.industry,
+    summary: tenant.enabledFrameworks.map((id) => {
       const fw = frameworks.find((f) => f.id === id);
       const counts = { total: 0 };
-      for (const c of db.controls.filter((x) => x.frameworkId === id)) {
+      for (const c of db.controls.filter((x) => x.tenant === tenant._id && x.frameworkId === id)) {
         counts[c.status] = (counts[c.status] || 0) + 1;
         counts.total += 1;
       }
@@ -340,74 +434,59 @@ function complianceSummary() {
   };
 }
 
-const countBy = (items, field) => items.reduce((acc, d) => ({ ...acc, [d[field] ?? 'none']: (acc[d[field] ?? 'none'] || 0) + 1 }), {});
-const OPEN_INC = ['new', 'assigned', 'in_progress', 'pending'];
+const readable = (ctx, names, filter = () => true) =>
+  Object.fromEntries(names.filter((n) => canRead(ctx, n)).map((n) => [n, scoped(n, ctx).filter(filter)]));
 
-function dashboard(user) {
-  const now = new Date();
-  const t = (v) => (v ? new Date(v).getTime() : null);
-  const in30 = now.getTime() + 30 * 864e5;
-  if (isRequesterOnly(user)) {
-    const mine = (d) => same(d.requester, user) || same(d.createdBy, user);
-    return { role: 'requester', incidents: { byStatus: countBy(db.incidents.filter(mine), 'status') }, requests: { byStatus: countBy(db.requests.filter(mine), 'status') } };
-  }
-  const openInc = db.incidents.filter((i) => OPEN_INC.includes(i.status));
-  const resolved30 = db.incidents.filter((i) => t(i.sla?.resolvedAt) >= now.getTime() - 30 * 864e5);
-  const between = (v, end) => v && t(v) >= now.getTime() && t(v) <= end;
+function session(ctx) {
+  const t = ctx.tenant;
   return {
-    role: 'staff',
-    incidents: {
-      byStatus: countBy(db.incidents, 'status'),
-      openByPriority: countBy(openInc, 'priority'),
-      openBreached: openInc.filter((i) => i.sla?.resolutionDue && !i.sla.pausedAt && t(i.sla.resolutionDue) < now.getTime()).length,
-      majorOpen: openInc.filter((i) => i.majorIncident).length,
-      regulatoryPending: db.incidents.filter((i) => i.regulatoryReportable && !i.regulatorReportedAt && i.status !== 'cancelled').length,
-      slaCompliance30d: resolved30.length ? Math.round((resolved30.filter((i) => !i.sla.resolutionBreached).length / resolved30.length) * 100) : null,
-      resolved30d: resolved30.length,
-      recent: sortBy(openInc, 'priority -createdAt').slice(0, 8).map((i) => populate('incidents', i)),
-    },
-    requests: { byStatus: countBy(db.requests, 'status') },
-    problems: { byStatus: countBy(db.problems, 'status') },
-    changes: {
-      byStatus: countBy(db.changes, 'status'),
-      upcoming: sortBy(db.changes.filter((c) => ['approved', 'scheduled'].includes(c.status) && t(c.plannedStart) >= now.getTime()), 'plannedStart').slice(0, 5),
-    },
-    risks: { openByLevel: countBy(db.risks.filter((r) => r.status !== 'closed'), 'inherentLevel') },
-    assets: {
-      byStatus: countBy(db.assets, 'status'),
-      licensesExpiring30d: db.assets.filter((a) => between(a.licenseExpiry, in30)).length,
-      warrantyExpiring30d: db.assets.filter((a) => between(a.warrantyEnd, in30)).length,
-    },
-    vendors: {
-      contractsEnding90d: db.vendors.filter((v) => v.status === 'active' && between(v.contractEnd, now.getTime() + 90 * 864e5)).length,
-      critical: db.vendors.filter((v) => v.criticality === 'critical' && v.status === 'active').length,
-    },
-    continuity: { testOverdue: db.continuity.filter((c) => c.status !== 'retired' && (!c.lastTestDate || t(c.nextTestDate) < now.getTime())).length },
-    projects: { byHealth: countBy(db.projects.filter((p) => !['closed', 'cancelled'].includes(p.status)), 'health') },
-    canSeeAudit: hasRole(user, ['auditor', 'risk_officer', 'security_officer']),
+    user: fullUser(ctx.user),
+    tenant: t && { _id: t._id, slug: t.slug, name: t.name, industry: t.industry, plan: t.plan, planName: PLANS[t.plan]?.name, status: t.status, trialEndsAt: t.trialEndsAt, branding: t.branding },
+    permissions: ctx.perms || null,
   };
 }
 
 // ---------- Endpoint publik (tanpa login) ----------
-function publicRoute([what, id], query) {
-  const kb = db.knowledge.filter((a) => a.status === 'published' && a.audience === 'public');
-  if (what === 'info') return { organizationName: db.settings.organizationName, industry: db.settings.industry, enabledFrameworks: db.settings.enabledFrameworks };
-  if (what === 'status') {
-    const services = sortBy(db.services.filter((s) => s.status === 'live' && s.type !== 'supporting'), 'name');
-    return { services: serviceStatuses(services, db.incidents, db.changes), maintenance: publicMaintenance(db.changes, services), updatedAt: new Date().toISOString() };
+function publicRoute([what, slug, sub, id], method, body, query) {
+  if (what === 'signup' && method === 'POST') {
+    const plan = ['starter', 'professional'].includes(body.plan) ? body.plan : 'professional';
+    const { tenant, user } = provisionTenant({
+      slug: String(body.slug || '').toLowerCase().trim(), name: String(body.organizationName || '').trim(), industry: body.industry, plan,
+      admin: { name: String(body.adminName || '').trim(), email: String(body.adminEmail || '').toLowerCase().trim(), password: String(body.password || '') },
+    });
+    audit({ tenant, user }, 'signup', 'tenant', tenant, { plan, industry: tenant.industry });
+    return { token: user._id, workspace: tenant.slug };
   }
-  if (what === 'knowledge' && id) {
+  if (what === 'workspaces') {
+    // Khusus demo: daftar workspace contoh untuk dipilih di halaman login & situs publik
+    return {
+      items: db.tenants.filter((t) => t.status !== 'suspended').map(({ _id, slug, name, industry, plan }) => ({
+        slug, name, industry, plan, accounts: db.users.filter((u) => u.tenant === _id && u.active).map((u) => u.email.split('@')[0]),
+      })),
+    };
+  }
+  if (what !== 't') throw new DemoError(404, 'Endpoint publik tidak ditemukan');
+  const tenant = db.tenants.find((t) => t.slug === String(slug).toLowerCase() && t.status !== 'suspended');
+  if (!tenant) throw new DemoError(404, 'Workspace tidak ditemukan');
+  const mine = (coll) => db[coll].filter((d) => d.tenant === tenant._id);
+  const kb = mine('knowledge').filter((a) => a.status === 'published' && a.audience === 'public');
+  if (sub === 'info') return { slug: tenant.slug, name: tenant.name, industry: tenant.industry, enabledFrameworks: tenant.enabledFrameworks, branding: tenant.branding };
+  if (sub === 'status') {
+    const services = sortBy(mine('services').filter((s) => s.status === 'live' && s.type !== 'supporting'), 'name');
+    return { services: serviceStatuses(services, mine('incidents'), mine('changes')), maintenance: publicMaintenance(mine('changes'), services), updatedAt: nowIso() };
+  }
+  if (sub === 'knowledge' && id) {
     const a = kb.find((x) => x._id === id);
     if (!a) throw new DemoError(404, 'Artikel tidak ditemukan');
     a.views = (a.views || 0) + 1;
     return publicArticle(a, true);
   }
-  if (what === 'knowledge') {
+  if (sub === 'knowledge') {
     const q = (query.q || '').toLowerCase();
     const hit = (a) => !q || [a.title, a.content, a.category, ...(a.tags || [])].some((v) => String(v || '').toLowerCase().includes(q));
     return { items: sortBy(kb.filter(hit), '-publishedAt').map((a) => publicArticle(a)) };
   }
-  if (what === 'catalog') return { items: sortBy(db.services.filter((s) => s.status === 'live' && s.requestable), 'requestCategory name').map(publicService) };
+  if (sub === 'catalog') return { items: sortBy(mine('services').filter((s) => s.status === 'live' && s.requestable), 'requestCategory name').map(publicService) };
   throw new DemoError(404, 'Endpoint publik tidak ditemukan');
 }
 
@@ -415,91 +494,190 @@ function publicRoute([what, id], query) {
 function route(method, path, body, query, token) {
   const parts = path.split('/').filter(Boolean);
   if (path === '/health') return { status: 'ok', mode: 'demo' };
-  if (parts[0] === 'public') return publicRoute(parts.slice(1), query);
+  if (parts[0] === 'public') return publicRoute(parts.slice(1), method, body, query);
   if (path === '/auth/login' && method === 'POST') {
+    const workspace = String(body.workspace || '').toLowerCase().trim();
     const email = String(body.email || '').toLowerCase().trim();
-    const user = db.users.find((u) => u.email === email);
+    const tenant = workspace ? db.tenants.find((t) => t.slug === workspace) : null;
+    const user = (!workspace || tenant) && db.users.find((u) => (u.tenant ?? null) === (tenant?._id ?? null) && u.email === email);
     if (!user || !user.active || user.password !== String(body.password || '')) {
-      audit(user, 'login_failed', 'auth', null, { email });
-      throw new DemoError(401, 'Email atau password salah');
+      if (tenant) audit({ tenant, user }, 'login_failed', 'auth', null, { workspace, email });
+      throw new DemoError(401, 'Workspace, email, atau password salah');
     }
-    user.lastLoginAt = new Date().toISOString();
-    audit(user, 'login', 'auth', user);
-    return { token: user._id, user: fullUser(user) };
+    if (tenant?.status === 'suspended') throw new DemoError(403, 'Workspace ditangguhkan. Hubungi administrator platform.');
+    user.lastLoginAt = nowIso();
+    audit({ tenant, user }, 'login', 'auth', user);
+    return { token: user._id };
   }
+
   const user = db.users.find((u) => u._id === token && u.active);
   if (!user) throw new DemoError(401, 'Autentikasi diperlukan');
+  const tenant = user.tenant ? db.tenants.find((t) => t._id === user.tenant) : null;
+  if (tenant?.status === 'suspended') throw new DemoError(403, 'Workspace ditangguhkan. Hubungi administrator platform.');
+  const ctx = { user, tenant, perms: tenant ? effectivePermissions(tenant) : null };
   const requireRole = (...roles) => {
     if (!hasRole(user, roles)) throw new DemoError(403, 'Akses ditolak untuk peran Anda');
   };
 
-  if (path === '/auth/me') return fullUser(user);
+  if (path === '/auth/me') return session(ctx);
   if (path === '/auth/change-password') {
     if (user.password !== body.currentPassword) throw new DemoError(400, 'Password lama salah');
     if (!body.newPassword || body.newPassword.length < 8) throw new DemoError(400, 'Password minimal 8 karakter');
     user.password = body.newPassword;
     return { ok: true };
   }
+
+  // ---- Konsol operator platform ----
+  if (parts[0] === 'platform') {
+    if (tenant || !user.roles.includes(PLATFORM_ROLE)) throw new DemoError(403, 'Hanya operator platform');
+    if (method === 'GET') {
+      return {
+        items: sortBy(db.tenants, '-createdAt').map(({ permissions, ...t }) => ({
+          ...t,
+          activeUsers: db.users.filter((u) => u.tenant === t._id && u.active).length,
+          incidents: db.incidents.filter((i) => i.tenant === t._id).length,
+        })),
+      };
+    }
+    if (method === 'POST') {
+      const { tenant: t } = provisionTenant({
+        slug: String(body.slug || '').toLowerCase().trim(), name: body.name, industry: body.industry, plan: body.plan, status: body.status || 'active',
+        admin: { name: body.adminName, email: String(body.adminEmail || '').toLowerCase().trim(), password: body.adminPassword },
+      });
+      audit({ user }, 'create', 'tenants', t, { plan: t.plan });
+      return t;
+    }
+    const t = db.tenants.find((x) => x._id === parts[2]);
+    if (!t) throw new DemoError(404, 'Tenant tidak ditemukan');
+    if (body.plan !== undefined && !PLAN_KEYS.includes(body.plan)) throw new DemoError(400, 'Paket tidak dikenal');
+    if (body.status !== undefined && !['trial', 'active', 'suspended'].includes(body.status)) throw new DemoError(400, 'Status tidak dikenal');
+    const before = { plan: t.plan, status: t.status };
+    if (body.plan) t.plan = body.plan;
+    if (body.status) t.status = body.status;
+    audit({ user }, 'update', 'tenants', t, diff(before, t, ['plan', 'status']));
+    return t;
+  }
+  if (!tenant) throw new DemoError(403, 'Rute ini hanya untuk pengguna workspace');
+
   if (path === '/users/roles') return ROLES;
   if (parts[0] === 'users') {
+    const mine = db.users.filter((u) => u.tenant === tenant._id);
     if (method === 'GET') {
-      let items = db.users;
+      let items = mine;
       if (query.active !== 'all') items = items.filter((u) => u.active);
       if (query.role) items = items.filter((u) => u.roles.includes(query.role));
       if (query.q) items = items.filter((u) => `${u.name} ${u.email}`.toLowerCase().includes(query.q.toLowerCase()));
-      return { items: sortBy(items, 'name').map(fullUser), total: items.length };
+      return { items: sortBy(items, 'name').map(fullUser), total: items.length, limit: PLANS[tenant.plan]?.maxUsers ?? null, used: mine.filter((u) => u.active).length };
     }
     requireRole('admin');
     const { name, email, password, roles, department, title, phone, active } = body;
+    const validRoles = Array.isArray(roles) ? roles.filter((r) => ROLES[r]) : undefined;
     if (method === 'POST') {
+      const max = PLANS[tenant.plan]?.maxUsers;
+      if (max && mine.filter((u) => u.active).length >= max) throw new DemoError(402, `Batas ${max} pengguna aktif untuk paket ${PLANS[tenant.plan].name} tercapai. Upgrade paket untuk menambah pengguna.`);
       if (!password || password.length < 8) throw new DemoError(400, 'Password minimal 8 karakter');
-      if (db.users.some((u) => u.email === String(email).toLowerCase())) throw new DemoError(409, 'Data duplikat');
-      const u = { _id: newId(), name, email: String(email).toLowerCase(), password, roles: roles?.length ? roles : ['requester'], department, title, phone, active: true, createdAt: new Date().toISOString() };
+      if (mine.some((u) => u.email === String(email).toLowerCase())) throw new DemoError(409, 'Data duplikat');
+      const u = { _id: newId(), tenant: tenant._id, name, email: String(email).toLowerCase(), password, roles: validRoles?.length ? validRoles : ['requester'], department, title, phone, active: true, createdAt: nowIso() };
       db.users.push(u);
-      audit(user, 'create', 'users', u, { email, roles });
+      audit(ctx, 'create', 'users', u, { email, roles: u.roles });
       return fullUser(u);
     }
-    const target = db.users.find((u) => u._id === parts[1]);
+    const target = mine.find((u) => u._id === parts[1]);
     if (!target) throw new DemoError(404, 'User tidak ditemukan');
     const before = clone(target);
-    Object.assign(target, Object.fromEntries(Object.entries({ name, email, roles, department, title, phone, active }).filter(([, v]) => v !== undefined)));
+    Object.assign(target, Object.fromEntries(Object.entries({ name, email, roles: validRoles, department, title, phone, active }).filter(([, v]) => v !== undefined)));
     if (target._id === user._id && (!target.active || !target.roles.includes('admin'))) {
       Object.assign(target, before);
       throw new DemoError(422, 'Tidak dapat menonaktifkan / mencabut peran admin dari akun sendiri');
     }
     if (password) target.password = password;
-    audit(user, 'update', 'users', target, diff(before, target, ['name', 'email', 'roles', 'department', 'active']));
+    audit(ctx, 'update', 'users', target, diff(before, target, ['name', 'email', 'roles', 'department', 'active']));
     return fullUser(target);
   }
-  if (path === '/settings') {
-    if (method === 'GET') return db.settings;
-    requireRole('admin');
-    const before = clone(db.settings);
-    for (const k of ['organizationName', 'industry', 'enabledFrameworks', 'timezone', 'dataResidency', 'businessHours', 'regulatorContact'])
-      if (body[k] !== undefined) db.settings[k] = body[k];
-    if (!industries.some((i) => i.id === db.settings.industry)) throw new DemoError(400, 'Industri tidak dikenal');
-    if (body.industry && body.industry !== before.industry && body.enabledFrameworks === undefined)
-      db.settings.enabledFrameworks = industries.find((i) => i.id === db.settings.industry).frameworks;
-    audit(user, 'update', 'settings', { number: 'org' }, diff(before, db.settings, Object.keys(body)));
-    return db.settings;
+
+  if (path === '/tenant') {
+    if (method === 'GET') return tenant;
+    requirePage(ctx, 'settings');
+    const before = clone(tenant);
+    for (const k of ['name', 'industry', 'enabledFrameworks', 'timezone', 'dataResidency', 'regulatorContact', 'branding']) if (body[k] !== undefined) tenant[k] = body[k];
+    if (!industries.some((i) => i.id === tenant.industry)) throw new DemoError(400, 'Industri tidak dikenal');
+    if (body.industry && body.industry !== before.industry && body.enabledFrameworks === undefined) tenant.enabledFrameworks = industries.find((i) => i.id === tenant.industry).frameworks;
+    audit(ctx, 'update', 'tenant', tenant, diff(before, tenant, Object.keys(body)));
+    return tenant;
+  }
+  if (path === '/tenant/access') {
+    requirePage(ctx, 'access');
+    if (method === 'PUT') {
+      const before = tenant.permissions || {};
+      tenant.permissions = sanitizeOverrides(body.overrides || {});
+      audit(ctx, 'update_access', 'tenant', tenant, { permissions: { from: before, to: tenant.permissions } });
+      return { overrides: tenant.permissions, effective: effectivePermissions(tenant) };
+    }
+    return { roles: ROLES, defaults: DEFAULT_PERMISSIONS, pages: PAGES, overrides: tenant.permissions || {}, effective: ctx.perms };
   }
   if (path === '/compliance/catalog') return { industries, frameworks: frameworks.map(({ controls, ...f }) => ({ ...f, controlCount: controls.length })) };
   if (path === '/compliance/sync') {
     requireRole('risk_officer', 'security_officer');
-    const created = syncControls(db.settings.enabledFrameworks, user);
-    audit(user, 'sync_controls', 'controls', null, { frameworks: db.settings.enabledFrameworks, created });
-    return { created, frameworks: db.settings.enabledFrameworks };
+    const created = syncControls(tenant._id, tenant.enabledFrameworks, user);
+    audit(ctx, 'sync_controls', 'controls', null, { frameworks: tenant.enabledFrameworks, created });
+    return { created, frameworks: tenant.enabledFrameworks };
   }
-  if (path === '/compliance/summary') return complianceSummary();
-  if (path === '/dashboard') return dashboard(user);
+  if (path === '/compliance/summary') {
+    requirePage(ctx, 'compliance');
+    return complianceSummary(tenant);
+  }
+  if (path === '/dashboard') {
+    if (isRequesterOnly(user)) {
+      const mine = (d) => same(d.requester, user) || same(d.createdBy, user);
+      const count = (xs) => xs.reduce((a, d) => ({ ...a, [d.status]: (a[d.status] || 0) + 1 }), {});
+      return { role: 'requester', incidents: { byStatus: count(tenantItems('incidents', ctx).filter(mine)) }, requests: { byStatus: count(tenantItems('requests', ctx).filter(mine)) } };
+    }
+    const data = readable(ctx, ['incidents', 'requests', 'problems', 'changes', 'risks', 'assets', 'vendors', 'continuity', 'projects']);
+    const names = Object.fromEntries(db.users.map((u) => [u._id, u.name]));
+    return { ...computeDashboard(data, { userName: (id) => names[id] }), visible: Object.keys(data) };
+  }
+  if (path === '/reports') {
+    requirePage(ctx, 'reports');
+    const days = Math.min(Math.max(Number(query.days) || 30, 7), 365);
+    const data = readable(ctx, ['incidents', 'requests', 'changes', 'problems']);
+    const svc = Object.fromEntries(tenantItems('services', ctx).map((s) => [s._id, s.name]));
+    return computeReports(data, { days, serviceName: (id) => svc[id] });
+  }
+  if (path === '/my-work') {
+    const data = readable(ctx, ['incidents', 'requests', 'problems', 'changes', 'backlog', 'risks', 'knowledge']);
+    return computeMyWork(data, user, { hasRole, canRead: (n) => !!data[n] });
+  }
+  if (path === '/search') {
+    const q = String(query.q || '').trim().toLowerCase();
+    if (q.length < 2) return [];
+    const groups = [];
+    for (const [name, def] of Object.entries(RESOURCES)) {
+      if (!canRead(ctx, name) || !def.search) continue;
+      const items = sortBy(scoped(name, ctx).filter((d) => def.search.some((f) => String(d[f] ?? '').toLowerCase().includes(q))), '-updatedAt')
+        .slice(0, 5)
+        .map(({ _id, number, title, name: n, status, code }) => ({ _id, number, title, name: n, status, code }));
+      if (items.length) groups.push({ resource: name, label: def.label, items });
+    }
+    return groups;
+  }
+  if (parts[0] === 'notifications') {
+    const mine = db.notifications.filter((n) => n.tenant === tenant._id && n.user === user._id);
+    if (method === 'GET') return { items: sortBy(mine, '-createdAt').slice(0, 30), unread: mine.filter((n) => !n.read).length };
+    if (parts[1] === 'read-all') mine.forEach((n) => { n.read = true; });
+    else {
+      const n = mine.find((x) => x._id === parts[1]);
+      if (n) n.read = true;
+    }
+    return { ok: true };
+  }
   if (path === '/audit-logs') {
-    requireRole('auditor', 'risk_officer', 'security_officer');
-    let items = db.audit;
+    requirePage(ctx, 'audit');
+    let items = db.audit.filter((a) => a.tenant === tenant._id);
     for (const k of ['resource', 'action', 'recordNumber', 'recordId']) if (query[k]) items = items.filter((a) => String(a[k]) === query[k]);
     items = sortBy(items, '-at');
     return { items: items.slice(0, Number(query.limit) || 100), total: items.length, page: 1, limit: Number(query.limit) || 100 };
   }
-  if (RESOURCES[parts[0]]) return resourceRoute(parts[0], method, parts.slice(1), body || {}, query, user);
+  if (RESOURCES[parts[0]]) return resourceRoute(ctx, parts[0], method, parts.slice(1), body || {}, query);
   throw new DemoError(404, `Endpoint tidak ditemukan: ${method} ${path}`);
 }
 
@@ -521,9 +699,9 @@ export async function handle(method, path, { body, query = {}, token } = {}) {
 const api = {
   get db() { return db; },
   newId,
+  provisionTenant,
   createRecord,
-  syncControls,
-  performTransition: (name, doc, to, user) => performTransition(name, doc, to, undefined, user),
+  performTransition,
   DEMO_PASSWORD,
 };
 

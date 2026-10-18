@@ -27,9 +27,7 @@ const ticketBase = [
 
 export const MODULES = {
   incidents: {
-    write: ['service_desk','technician','incident_manager','security_officer'],
-    create: ['*'],
-    label: 'Incident', plural: 'Incident', group: 'Service Management', icon: '⚠️', titleField: 'title',
+    label: 'Incident', plural: 'Incident', group: 'Service Management', icon: 'alert', titleField: 'title',
     description: 'ITIL Incident Management — pemulihan layanan secepatnya sesuai SLA.',
     columns: ['number', 'title', 'priority', 'status', 'slaStatus', 'assignee', 'createdAt'],
     fields: [
@@ -47,9 +45,7 @@ export const MODULES = {
     transitionFields: { assigned: ['assignee'], in_progress: ['assignee'], pending: ['pendingReason'], resolved: ['resolutionCode', 'resolutionNotes'] },
   },
   requests: {
-    write: ['service_desk','technician'],
-    create: ['*'],
-    label: 'Service Request', plural: 'Service Request', group: 'Service Management', icon: '📝', titleField: 'title',
+    label: 'Service Request', plural: 'Service Request', group: 'Service Management', icon: 'request', titleField: 'title',
     description: 'ITIL Service Request Management — permintaan layanan terstandar dari katalog.',
     columns: ['number', 'title', 'service', 'priority', 'status', 'slaStatus', 'requester', 'createdAt'],
     fields: [
@@ -63,8 +59,7 @@ export const MODULES = {
     transitionFields: { fulfilled: ['fulfillmentNotes'] },
   },
   problems: {
-    write: ['problem_manager','incident_manager','technician'],
-    label: 'Problem', plural: 'Problem', group: 'Service Management', icon: '🔍', staffOnly: true, titleField: 'title',
+    label: 'Problem', plural: 'Problem', group: 'Service Management', icon: 'problem', staffOnly: true, titleField: 'title',
     description: 'ITIL Problem Management — analisis akar masalah (RCA) & known error.',
     columns: ['number', 'title', 'priority', 'status', 'knownError', 'assignee', 'createdAt'],
     fields: [
@@ -86,8 +81,7 @@ export const MODULES = {
     transitionFields: { investigating: ['assignee'], known_error: ['workaround'], resolved: ['rootCause', 'permanentFix'] },
   },
   changes: {
-    write: ['change_manager','technician','architect','project_manager','security_officer','asset_manager','cab_member'],
-    label: 'Change', plural: 'Change (RFC)', group: 'Service Management', icon: '🔁', staffOnly: true, titleField: 'title',
+    label: 'Change', plural: 'Change (RFC)', group: 'Service Management', icon: 'change', staffOnly: true, titleField: 'title',
     description: 'ITIL Change Enablement — RFC, penilaian risiko, persetujuan CAB, PIR.',
     columns: ['number', 'title', 'type', 'risk', 'status', 'plannedStart', 'requester'],
     fields: [
@@ -116,8 +110,7 @@ export const MODULES = {
     transitionFields: { submitted: ['implementationPlan', 'backoutPlan', 'plannedStart', 'plannedEnd'], closed: ['outcome', 'pirNotes'] },
   },
   knowledge: {
-    write: ['knowledge_manager','service_desk','technician','problem_manager'],
-    label: 'Artikel', plural: 'Knowledge Base', group: 'Service Management', icon: '📚', titleField: 'title',
+    label: 'Artikel', plural: 'Knowledge Base', group: 'Service Management', icon: 'book', titleField: 'title',
     description: 'ITIL Knowledge Management — artikel direview sebelum terbit (segregation of duties).',
     columns: ['number', 'title', 'articleType', 'status', 'audience', 'author', 'updatedAt'],
     fields: [
@@ -135,8 +128,7 @@ export const MODULES = {
     ],
   },
   services: {
-    write: ['asset_manager','architect'],
-    label: 'Layanan', plural: 'Service Catalog', group: 'Service Management', icon: '🗂️', titleField: 'name',
+    label: 'Layanan', plural: 'Service Catalog', group: 'Service Management', icon: 'layers', titleField: 'name',
     description: 'Katalog layanan bisnis & teknis beserta target ketersediaan, RTO/RPO.',
     columns: ['number', 'name', 'type', 'criticality', 'status', 'requestable', 'availabilityTarget'],
     fields: [
@@ -157,8 +149,7 @@ export const MODULES = {
     ],
   },
   'sla-policies': {
-    write: ['incident_manager'],
-    label: 'SLA Policy', plural: 'SLA Policy', group: 'Service Management', icon: '⏱️', staffOnly: true, titleField: 'name', noActivity: true,
+    label: 'SLA Policy', plural: 'SLA Policy', group: 'Service Management', icon: 'clock', staffOnly: true, titleField: 'name', noActivity: true,
     description: 'Target respons & resolusi per prioritas (menit, kalender 24x7).',
     columns: ['name', 'appliesTo', 'priority', 'responseMinutes', 'resolutionMinutes', 'active'],
     fields: [
@@ -172,8 +163,7 @@ export const MODULES = {
     ],
   },
   'configuration-items': {
-    write: ['asset_manager','technician'],
-    label: 'Configuration Item', plural: 'CMDB', group: 'Aset & Konfigurasi', icon: '🖥️', staffOnly: true, titleField: 'name',
+    label: 'Configuration Item', plural: 'CMDB', group: 'Aset & Konfigurasi', icon: 'server', staffOnly: true, titleField: 'name',
     description: 'Configuration Management Database — CI, relasi, lokasi & klasifikasi data.',
     columns: ['number', 'name', 'ciType', 'environment', 'status', 'dataCenter', 'hostingCountry', 'dataClassification'],
     fields: [
@@ -198,8 +188,7 @@ export const MODULES = {
     ],
   },
   assets: {
-    write: ['asset_manager'],
-    label: 'Aset', plural: 'IT Asset (ITAM)', group: 'Aset & Konfigurasi', icon: '💼', staffOnly: true, titleField: 'name',
+    label: 'Aset', plural: 'IT Asset (ITAM)', group: 'Aset & Konfigurasi', icon: 'box', staffOnly: true, titleField: 'name',
     description: 'IT Asset Management (ISO/IEC 19770) — siklus hidup, lisensi, garansi & disposal aman.',
     columns: ['number', 'name', 'category', 'status', 'assignedTo', 'warrantyEnd', 'licenseExpiry'],
     fields: [
@@ -228,8 +217,7 @@ export const MODULES = {
     ],
   },
   vendors: {
-    write: ['vendor_manager','risk_officer'],
-    label: 'Vendor', plural: 'Vendor / Penyedia Jasa TI', group: 'Tata Kelola & Risiko', icon: '🤝', staffOnly: true, titleField: 'name',
+    label: 'Vendor', plural: 'Vendor / Penyedia Jasa TI', group: 'Tata Kelola & Risiko', icon: 'briefcase', staffOnly: true, titleField: 'name',
     description: 'Manajemen penyedia jasa TI — due diligence, kontrak, hak audit, lokasi data & exit strategy (POJK 11/2022, PADK 1/2026).',
     columns: ['number', 'name', 'category', 'criticality', 'status', 'contractEnd', 'dataLocation', 'riskRating'],
     fields: [
@@ -258,8 +246,7 @@ export const MODULES = {
     ],
   },
   risks: {
-    write: ['risk_officer','security_officer'],
-    label: 'Risiko', plural: 'Risk Register', group: 'Tata Kelola & Risiko', icon: '🛡️', staffOnly: true, titleField: 'title',
+    label: 'Risiko', plural: 'Risk Register', group: 'Tata Kelola & Risiko', icon: 'shield', staffOnly: true, titleField: 'title',
     description: 'Register risiko TI 5x5 (ISO 31000, NIST SP 800-30) dipetakan ke fungsi NIST CSF 2.0.',
     columns: ['number', 'title', 'category', 'inherentLevel', 'residualLevel', 'status', 'owner', 'dueDate'],
     fields: [
@@ -288,8 +275,7 @@ export const MODULES = {
     transitionFields: { assessed: ['owner', 'likelihood', 'impact'], treating: ['treatment', 'treatmentPlan'] },
   },
   controls: {
-    write: ['risk_officer','security_officer'],
-    label: 'Kontrol', plural: 'Kontrol Kepatuhan', group: 'Tata Kelola & Risiko', icon: '✅', staffOnly: true, titleField: 'title',
+    label: 'Kontrol', plural: 'Kontrol Kepatuhan', group: 'Tata Kelola & Risiko', icon: 'checkSquare', staffOnly: true, titleField: 'title',
     description: 'Self-assessment kontrol per framework/regulasi yang aktif untuk industri Anda.',
     columns: ['frameworkId', 'code', 'title', 'nistFunction', 'status', 'owner', 'nextReview'],
     fields: [
@@ -311,8 +297,7 @@ export const MODULES = {
     ],
   },
   continuity: {
-    write: ['risk_officer','asset_manager','security_officer'],
-    label: 'Rencana', plural: 'BCP / DRP', group: 'Tata Kelola & Risiko', icon: '🧯', staffOnly: true, titleField: 'name',
+    label: 'Rencana', plural: 'BCP / DRP', group: 'Tata Kelola & Risiko', icon: 'lifebuoy', staffOnly: true, titleField: 'name',
     description: 'Business Continuity & Disaster Recovery Plan — RTO/RPO dan pengujian berkala.',
     columns: ['number', 'name', 'planType', 'status', 'rtoHours', 'rpoHours', 'lastTestDate', 'nextTestDate'],
     fields: [
@@ -334,8 +319,7 @@ export const MODULES = {
     ],
   },
   architecture: {
-    write: ['architect'],
-    label: 'Komponen', plural: 'Arsitektur (TOGAF)', group: 'Arsitektur & Proyek', icon: '🏛️', staffOnly: true, titleField: 'name',
+    label: 'Komponen', plural: 'Arsitektur (TOGAF)', group: 'Arsitektur & Proyek', icon: 'building', staffOnly: true, titleField: 'name',
     description: 'Architecture repository TOGAF — building block per domain BDAT, fase ADM & status baseline/target.',
     columns: ['number', 'name', 'domain', 'buildingBlockType', 'admPhase', 'state', 'lifecycle', 'status'],
     fields: [
@@ -356,8 +340,7 @@ export const MODULES = {
     ],
   },
   projects: {
-    write: ['project_manager'],
-    label: 'Proyek', plural: 'Proyek', group: 'Arsitektur & Proyek', icon: '📊', staffOnly: true, titleField: 'name',
+    label: 'Proyek', plural: 'Proyek', group: 'Arsitektur & Proyek', icon: 'kanban', staffOnly: true, titleField: 'name',
     description: 'Manajemen proyek PMBOK (predictive/agile/hybrid) — siklus inisiasi hingga penutupan.',
     columns: ['number', 'name', 'approach', 'status', 'health', 'percentComplete', 'manager', 'endDate'],
     fields: [
@@ -386,8 +369,7 @@ export const MODULES = {
     transitionFields: { planning: ['manager', 'objectives'], executing: ['scope', 'startDate', 'endDate'], closed: ['lessonsLearned'] },
   },
   sprints: {
-    write: ['project_manager'],
-    label: 'Sprint', plural: 'Sprint', group: 'Arsitektur & Proyek', icon: '🏃', staffOnly: true, titleField: 'name',
+    label: 'Sprint', plural: 'Sprint', group: 'Arsitektur & Proyek', icon: 'zap', staffOnly: true, titleField: 'name',
     description: 'Scrum Sprint — Sprint Goal, Review & Retrospective.',
     columns: ['number', 'name', 'project', 'status', 'startDate', 'endDate', 'capacityPoints'],
     fields: [
@@ -403,8 +385,7 @@ export const MODULES = {
     transitionFields: { active: ['goal', 'startDate', 'endDate'], completed: ['reviewNotes', 'retrospectiveNotes'] },
   },
   backlog: {
-    write: ['project_manager','technician','architect'],
-    label: 'Backlog Item', plural: 'Product Backlog', group: 'Arsitektur & Proyek', icon: '🧩', staffOnly: true, titleField: 'title',
+    label: 'Backlog Item', plural: 'Product Backlog', group: 'Arsitektur & Proyek', icon: 'list', staffOnly: true, titleField: 'title',
     description: 'Product/Sprint Backlog dengan story points & prioritas MoSCoW.',
     columns: ['number', 'title', 'itemType', 'project', 'sprint', 'status', 'priority', 'storyPoints', 'assignee'],
     board: true,
@@ -425,3 +406,25 @@ export const MODULES = {
 };
 
 export const NAV_GROUPS = ['Service Management', 'Aset & Konfigurasi', 'Tata Kelola & Risiko', 'Arsitektur & Proyek'];
+
+/** Pengelompokan field di formulir (field yang tidak tercantum masuk ke bagian "Detail lainnya"). */
+export const FORM_SECTIONS = {
+  incidents: [['Ringkasan', ['title', 'description', 'service', 'configurationItem', 'category', 'channel']], ['Prioritas & penanganan', ['impact', 'urgency', 'priority', 'requester', 'assignee', 'assignmentGroup', 'relatedProblem', 'pendingReason']], ['Keamanan & regulasi', ['majorIncident', 'securityIncident', 'personalDataBreach', 'regulatoryReportable', 'regulatorReportedAt']], ['Resolusi', ['resolutionCode', 'resolutionNotes']]],
+  changes: [['Ringkasan', ['title', 'type', 'risk', 'impact', 'service', 'configurationItems', 'assignee', 'description', 'justification']], ['Jadwal', ['plannedStart', 'plannedEnd']], ['Rencana', ['implementationPlan', 'backoutPlan', 'testPlan', 'securityImpactAssessment']], ['Keterkaitan & hasil', ['relatedProblem', 'relatedProject', 'outcome', 'pirNotes']]],
+  vendors: [['Profil', ['name', 'category', 'status', 'criticality', 'contactName', 'contactEmail']], ['Kontrak', ['contractNumber', 'contractValue', 'contractStart', 'contractEnd', 'slaSummary']], ['Due diligence & kepatuhan', ['dueDiligenceDate', 'dueDiligenceResult', 'certifications', 'dataLocation', 'offshoreApproval', 'rightToAudit', 'lastAuditDate', 'riskRating', 'subcontractors', 'exitStrategy']]],
+  risks: [['Identifikasi', ['title', 'description', 'category', 'nistFunction', 'owner']], ['Penilaian inheren', ['likelihood', 'impact', 'existingControls']], ['Penanganan & residual', ['treatment', 'treatmentPlan', 'residualLikelihood', 'residualImpact', 'dueDate', 'reviewDate']], ['Keterkaitan', ['relatedVendor', 'relatedAssets', 'relatedControls']]],
+  assets: [['Identitas', ['name', 'assetTag', 'category', 'status', 'manufacturer', 'model', 'serialNumber', 'assignedTo', 'location', 'vendor']], ['Finansial', ['purchaseDate', 'purchaseCost', 'depreciationYears', 'warrantyEnd']], ['Lisensi', ['licenseType', 'licenseSeats', 'licenseSeatsUsed', 'licenseExpiry']], ['Disposal', ['disposalMethod', 'disposalDate', 'disposalCertificate', 'notes']]],
+  projects: [['Charter', ['name', 'code', 'approach', 'health', 'manager', 'sponsor', 'description', 'objectives']], ['Jadwal & biaya', ['startDate', 'endDate', 'budget', 'actualCost', 'percentComplete', 'regulatoryDriver', 'relatedServices']], ['Lingkup', ['scope', 'deliverables', 'stakeholders', 'assumptions', 'constraints', 'lessonsLearned']]],
+};
+
+/** Urutan "jalur utama" status untuk stepper di halaman detail. */
+export const STATUS_FLOW = {
+  incidents: ['new', 'assigned', 'in_progress', 'resolved', 'closed'],
+  requests: ['submitted', 'pending_approval', 'approved', 'fulfilling', 'fulfilled', 'closed'],
+  problems: ['new', 'investigating', 'known_error', 'resolved', 'closed'],
+  changes: ['draft', 'submitted', 'assessment', 'cab_review', 'approved', 'scheduled', 'implementing', 'review', 'closed'],
+  knowledge: ['draft', 'review', 'published'],
+  risks: ['identified', 'assessed', 'treating', 'monitoring', 'closed'],
+  projects: ['initiating', 'planning', 'executing', 'monitoring', 'closing', 'closed'],
+  sprints: ['planned', 'active', 'completed'],
+};

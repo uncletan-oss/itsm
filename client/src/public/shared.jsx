@@ -8,8 +8,8 @@ export const STATUS = {
 };
 
 export const StatusPill = ({ status }) => {
-  const [label, tone, icon] = STATUS[status] || STATUS.operational;
-  return <Badge tone={tone}>{icon} {label}</Badge>;
+  const [label, tone] = STATUS[status] || STATUS.operational;
+  return <Badge tone={tone}>{label}</Badge>;
 };
 
 export function overall(services = []) {

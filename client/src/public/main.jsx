@@ -10,7 +10,13 @@ import './public.css';
 
 // Tautan lama (#/m/..., #/portal, dst.) dulu menuju portal — teruskan ke frontend portal
 const legacy = window.location.hash.match(/^#(\/(m|portal|compliance|audit|users|settings)\b.*)$/);
-if (legacy) window.location.replace(portalHref(legacy[1] === '/portal' ? '/portal' : legacy[1]));
+if (legacy) window.location.replace(portalHref(legacy[1]));
+
+try {
+  document.documentElement.dataset.theme = localStorage.getItem('itsm_theme') || 'light';
+} catch {
+  /* abaikan */
+}
 
 const Router = DEMO ? HashRouter : BrowserRouter;
 const routerProps = DEMO ? {} : { basename: import.meta.env.BASE_URL };

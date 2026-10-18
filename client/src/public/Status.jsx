@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
 import { api } from '../api.js';
 import { portalHref } from '../links.js';
 import { fmtDateTime } from '../components/format.jsx';
 import { OVERALL_TEXT, STATUS, StatusPill, overall } from './shared.jsx';
 
 export default function Status() {
+  const { slug } = useOutletContext();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   useEffect(() => {
-    const load = () => api('/public/status').then(setData).catch((e) => setError(e.message));
+    const load = () => api(`/public/t/${slug}/status`).then(setData).catch((e) => setError(e.message));
     load();
     const t = setInterval(load, 60000);
     return () => clearInterval(t);
@@ -57,7 +59,7 @@ export default function Status() {
           </table>
         ) : <p className="muted">Tidak ada pemeliharaan terjadwal.</p>}
       </div>
-      <p className="muted small">Mengalami kendala yang belum tercantum? <a href={portalHref('/m/incidents/new')}>Laporkan gangguan melalui portal</a>.</p>
+      <p className="muted small">Mengalami kendala yang belum tercantum? <a href={portalHref('/m/incidents/new', slug)}>Laporkan gangguan melalui portal</a>.</p>
     </div>
   );
 }

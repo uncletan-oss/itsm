@@ -1,28 +1,56 @@
-# ITSM Platform — IT Service Management Multi-Industri
+# Nusa ITSM — Service Management Cloud (SaaS multi-tenant)
 
-Aplikasi web IT Service Management (React + Node.js + MongoDB) yang mengacu pada best practice
+Platform SaaS IT Service Management (React + Node.js + MongoDB) yang mengacu pada best practice
 **ITIL 4, TOGAF, ITAM (ISO/IEC 19770), NIST CSF 2.0, PMBOK 7, Agile/Scrum**, serta regulasi
 Indonesia seperti **PADK OJK No. 1 Tahun 2026** dan **POJK 11/POJK.03/2022** (Penyelenggaraan TI oleh Bank Umum).
 Paket regulasi aktif mengikuti **industri** yang dipilih, jadi satu aplikasi bisa dipakai bank, LJK nonbank,
 pemerintahan (SPBE), rumah sakit, ritel, manufaktur, dan industri lain.
 
 **🌐 Demo online (GitHub Pages):**
-- Situs publik (tanpa login): https://uncletan-oss.github.io/itsm/
-- Portal (login): https://uncletan-oss.github.io/itsm/portal/ — login cepat dengan tombol peran
-  (admin, service desk, teknisi, change manager, CAB, risk officer, PM, auditor, end user).
+- Situs SaaS (landing, harga, pendaftaran): https://uncletan-oss.github.io/itsm/
+- Pusat bantuan tenant: https://uncletan-oss.github.io/itsm/#/w/bank-nusantara
+- Portal (login): https://uncletan-oss.github.io/itsm/portal/ — pilih workspace contoh lalu klik tombol peran.
+
+Workspace demo (password semua akun `Password123!`):
+
+| Workspace | Organisasi | Industri | Paket |
+|---|---|---|---|
+| `bank-nusantara` | PT Bank Nusantara Sejahtera | Perbankan (POJK 11/2022 + PADK 1/2026) | Enterprise |
+| `rs-sehat-sentosa` | RS Sehat Sentosa | Kesehatan (Permenkes 24/2022) | Professional |
+| `pemkot-harmoni` | Pemerintah Kota Harmoni | Pemerintahan (SPBE) | Starter |
+| *(kosong)* | Operator platform — `platform@itsm.local` | Konsol SaaS | — |
+
+## Konsep SaaS multi-tenant
+
+- **Tenant = workspace organisasi.** Semua data (tiket, aset, kontrol, SLA, notifikasi, audit log, penomoran)
+  memiliki field `tenant`; setiap query server dibatasi tenant dari JWT, dan referensi ke record tenant lain
+  ditolak (`400`). Nomor tiket dimulai dari `INC000001` di setiap tenant.
+- **Login** memakai *kode workspace* + email + password. Email unik per tenant (orang yang sama bisa punya akun di beberapa tenant).
+- **Pendaftaran mandiri** (`/daftar`) membuat tenant trial 14 hari + admin + SLA P1–P4 + katalog dasar + kontrol kepatuhan sesuai industri.
+- **Paket langganan** (`shared/plans.mjs`) membatasi modul dan jumlah pengguna aktif:
+  Starter (ITSM inti, 15 pengguna) · Professional (+ GRC, 100 pengguna) · Enterprise (+ arsitektur & proyek, tanpa batas).
+  Modul di luar paket tampil terkunci untuk admin dan ditolak `403` oleh server.
+- **Operator platform** (peran `platform_admin`, tanpa tenant) mengelola tenant, paket, dan status (trial/aktif/ditangguhkan)
+  di konsol tersendiri — tanpa akses ke data operasional tenant. Tenant yang ditangguhkan tidak bisa login.
+- **Pusat bantuan publik per tenant** di `/w/<workspace>`: status layanan, knowledge base publik, katalog, dan framework.
+
+## Menu sesuai peran (RBAC)
+
+Matriks hak akses default ada di `shared/permissions.mjs` (least privilege, 16 peran). Admin tenant dapat menyesuaikan
+siapa yang boleh **melihat (R)** dan **mengubah (W)** setiap modul di menu **Peran & Akses**; server menegakkan matriks
+efektif (default ⊕ override tenant ⊖ paket), dan sidebar portal dibangun dari matriks yang sama — sehingga teknisi,
+auditor, risk officer, atau end user masing-masing hanya melihat menu yang relevan. Aturan alur kerja (mis. SoD di CAB)
+tetap berlaku apa pun pengaturannya.
 
 ## Dua frontend
 
 | Frontend | URL | Untuk | Isi |
 |---|---|---|---|
-| **Publik** | `/` | Siapa saja, tanpa login | Beranda & pencarian solusi, status layanan (otomatis dari incident/change), pusat bantuan (knowledge base publik + katalog layanan), framework & regulasi per industri |
-| **Portal** | `/portal/` | Pengguna terautentikasi (end user s.d. admin) | Seluruh modul ITSM, GRC, arsitektur & proyek sesuai peran |
+| **Publik** | `/` dan `/w/<workspace>` | Siapa saja, tanpa login | Landing SaaS, harga, pendaftaran, katalog regulasi; pusat bantuan & status layanan per tenant |
+| **Portal** | `/portal/` | Pengguna workspace & operator platform | Dashboard, Pekerjaan Saya, modul ITSM/GRC/arsitektur sesuai peran, laporan, administrasi |
 
-Keduanya dibangun dari satu proyek Vite (multi-page: `client/index.html` dan `client/portal/index.html`).
-Situs publik hanya memakai endpoint `/api/public/*` yang mengembalikan data aman untuk publik
-(status per layanan tanpa detail tiket, artikel berstatus *published* dengan audiens *public*, dan katalog permintaan).
-Tombol aksi di situs publik (laporkan gangguan, ajukan permintaan) membuka portal, dan setelah login pengguna
-langsung diarahkan ke halaman yang dituju.
+Keduanya dibangun dari satu proyek Vite (multi-page: `client/index.html` dan `client/portal/index.html`) dengan
+design system "Sapphire & Champagne" (navy + champagne gold, Plus Jakarta Sans, mode gelap).
 
 > ⚠️ Kontrol kepatuhan di aplikasi ini adalah **ringkasan tingkat domain** untuk self-assessment,
 > bukan salinan naskah resmi. Tim kepatuhan/legal wajib memverifikasi dan melengkapinya
@@ -47,7 +75,9 @@ langsung diarahkan ke halaman yang dituju.
 | Arsitektur & Proyek | Architecture Repository (domain BDAT, ABB/SBB, fase ADM, baseline/target, model TIME) | TOGAF |
 | | Proyek (predictive/agile/hybrid, siklus inisiasi→penutupan, lessons learned) | PMBOK 7 |
 | | Sprint (goal, review, retrospective) & Product Backlog (board Kanban, story points, MoSCoW) | Scrum Guide 2020 |
-| Administrasi | Pengguna & 16 peran (RBAC), Audit Log append-only, Pengaturan industri & framework | ISO 27001 A.8.15, NIST PR.AA |
+| Produktivitas | Pekerjaan Saya (ditugaskan, antrean persetujuan CAB/request/artikel, tiket yang diajukan), notifikasi in-app, pencarian global (Ctrl K), record terkait, ekspor CSV | ITIL 4 |
+| Analitik | Laporan: tren incident, MTTR & SLA per prioritas, keberhasilan change, top layanan, umur backlog | ITIL 4 SLM & Continual Improvement |
+| Administrasi | Pengguna (batas per paket), Peran & Akses (matriks per tenant), Audit Log append-only, Pengaturan workspace | ISO 27001 A.8.15, NIST PR.AA |
 
 ### Paket regulasi per industri
 
@@ -60,12 +90,12 @@ langsung diarahkan ke halaman yang dituju.
 | Pemerintahan | + SPBE (Perpres 95/2018, Peraturan BSSN 4/2021) |
 | Kesehatan | + Permenkes 24/2022 (Rekam Medis Elektronik) |
 
-Admin bisa menambah atau mengurangi framework di **Pengaturan Organisasi**. Untuk menambah regulasi baru,
-tambahkan objek di `server/src/data/frameworks.js`, petakan ke industri, lalu klik **Sinkronkan kontrol**.
+Admin tenant bisa menambah atau mengurangi framework di **Pengaturan Workspace**. Untuk menambah regulasi baru,
+tambahkan objek di `shared/frameworks.mjs`, petakan ke industri, lalu klik **Sinkronkan kontrol**.
 
 ## Kontrol bawaan (sesuai prinsip tata kelola)
 
-- **Workflow / state machine** per praktik (`server/src/services/workflows.js`): transisi tidak valid ditolak,
+- **Workflow / state machine** per praktik (`shared/workflows.mjs`): transisi tidak valid ditolak,
   field wajib diperiksa saat transisi (mis. backout plan sebelum change diajukan, root cause sebelum problem selesai).
   Status hanya bisa diubah lewat endpoint transisi, tidak lewat edit biasa.
 - **Segregation of duties**: pemohon atau implementer tidak bisa menyetujui change-nya sendiri, pemohon tidak bisa
@@ -83,21 +113,23 @@ tambahkan objek di `server/src/data/frameworks.js`, petakan ke industri, lalu kl
 ## Struktur
 
 ```
-shared/   Logika bisnis murni (workflow, SLA, prioritas, RBAC, katalog regulasi) — dipakai server & demo
+shared/   Logika bisnis murni — dipakai server & backend demo
+  permissions.mjs  Matriks hak akses + override tenant + batas paket
+  plans.mjs        Paket langganan SaaS & validasi kode workspace
+  workflows.mjs, sla.mjs, priority.mjs, notify.mjs, insights.mjs (dashboard/laporan/Pekerjaan Saya)
+  frameworks.mjs   Katalog framework & regulasi per industri
 server/   Express + Mongoose API
-  src/models/        Skema MongoDB (itsm, assets, governance, projects, user, audit, setting)
-  src/resources.js   Registry resource: RBAC, penomoran, workflow, hook bisnis
-  src/routes/        Router CRUD generik + auth, users, settings, compliance, dashboard, audit
-  src/services/      priority, SLA, workflow, audit
-  src/data/frameworks.js  Katalog framework & regulasi per industri
-  test/              Unit test + integration test API
+  src/models/        Tenant, User, Notification, AuditLog + skema modul (semua ber-tenant)
+  src/resources.js   Registry resource: penomoran, workflow, hook bisnis
+  src/routes/        CRUD generik (scoped tenant) + auth, tenant, users, platform, public, insights, compliance, audit
+  src/services/      provision (onboarding tenant), notify, audit
+  test/              Unit test + integration test (termasuk isolasi tenant)
 client/   React 18 + Vite + React Router
-  src/config/modules.js   Definisi field/kolom tiap modul (UI generik)
-  src/components/         List, Form, Detail (transisi, CAB, SLA, aktivitas), Layout
-  index.html, src/public/ Frontend publik
+  index.html, src/public/ Frontend publik (landing SaaS, pendaftaran, pusat bantuan tenant)
   portal/index.html       Entry frontend portal (src/main.jsx)
-  src/pages/              Dashboard, Portal, Kepatuhan, Pengaturan, Pengguna, Audit Log
-  src/demo/               Backend tiruan di browser untuk mode demo / GitHub Pages
+  src/components/         Layout (menu per peran), List, Form, Detail (stepper, CAB, SLA, aktivitas, terkait), ui, charts, Icon
+  src/pages/              Dashboard, Pekerjaan Saya, Laporan, Portal, Kepatuhan, Pengaturan, Peran & Akses, Pengguna, Audit Log, Platform
+  src/demo/               Backend tiruan multi-tenant di browser untuk mode demo / GitHub Pages
 ```
 
 ## Menjalankan
@@ -107,12 +139,12 @@ Prasyarat: Node.js 22.12+ dan MongoDB 6+ (lokal atau MongoDB Atlas).
 ```bash
 npm install
 cp server/.env.example server/.env      # atur MONGO_URI & JWT_SECRET
-npm run seed                            # data demo (SEED_INDUSTRY=banking|government|healthcare|...)
+npm run seed                            # 3 tenant demo + operator platform (SEED_RESET=true untuk mengulang)
 npm run dev                             # API :4000 + React :5173
 ```
 
-Buka http://localhost:5173 (situs publik) atau http://localhost:5173/portal/ dan login dengan `admin@itsm.local` / `Password123!`.
-Akun demo lain (password sama): `servicedesk`, `tech`, `incident`, `change`, `cab`, `asset`, `knowledge`,
+Buka http://localhost:5173 (situs publik) atau http://localhost:5173/portal/ dan login dengan workspace
+`bank-nusantara`, email `admin@itsm.local`, password `Password123!`. Akun demo lain (password sama): `servicedesk`, `tech`, `incident`, `change`, `cab`, `asset`, `knowledge`,
 `risk`, `ciso`, `architect`, `pm`, `vendor`, `auditor`, `user` (end user) — semuanya `@itsm.local`.
 Ganti atau hapus akun demo sebelum dipakai di production.
 
@@ -144,14 +176,19 @@ Semua endpoint di bawah `/api` (kecuali `/api/public/*`, `/api/auth/login` dan `
 
 | Endpoint | Keterangan |
 |---|---|
-| `GET /public/info`, `/public/status`, `/public/knowledge[/:id]`, `/public/catalog` | Situs publik (tanpa login) |
-| `POST /auth/login`, `GET /auth/me`, `POST /auth/change-password` | Autentikasi |
+| `POST /public/signup` | Pendaftaran workspace (tanpa login) |
+| `GET /public/t/:workspace/{info,status,knowledge[/:id],catalog}` | Pusat bantuan publik per tenant |
+| `POST /auth/login {workspace,email,password}`, `GET /auth/me` (user + tenant + matriks akses), `POST /auth/change-password` | Autentikasi |
 | `GET/POST /:resource`, `GET/PUT/DELETE /:resource/:id` | CRUD. Filter: `?q=`, `?status=a,b`, `?<field>=`, `?page=`, `?sort=` |
 | `POST /:resource/:id/transition` `{to, note, ...fields}` | Transisi status sesuai workflow |
 | `POST /:resource/:id/comments` `{message, type}` | Komentar / work note |
 | `POST /changes/:id/approve` `{decision, comment}` | Keputusan CAB |
-| `GET /dashboard`, `GET /compliance/summary`, `POST /compliance/sync` | Dashboard & kepatuhan |
-| `GET/PUT /settings`, `GET/POST/PUT /users`, `GET /audit-logs` | Administrasi |
+| `GET /:resource/:id/related` | Record lain yang mereferensikan record ini |
+| `GET /dashboard`, `/reports?days=`, `/my-work`, `/search?q=` | Dashboard, laporan, Pekerjaan Saya, pencarian global |
+| `GET /notifications`, `POST /notifications/:id/read`, `/notifications/read-all` | Notifikasi in-app |
+| `GET /compliance/summary`, `POST /compliance/sync` | Kepatuhan |
+| `GET/PUT /tenant`, `GET/PUT /tenant/access`, `GET/POST/PUT /users`, `GET /audit-logs` | Administrasi workspace |
+| `GET/POST /platform/tenants`, `PUT /platform/tenants/:id` | Konsol operator platform |
 
 Resource: `incidents, requests, problems, changes, knowledge, services, sla-policies, configuration-items, assets,
 vendors, risks, controls, continuity, architecture, projects, sprints, backlog`.
@@ -159,11 +196,13 @@ vendors, risks, controls, continuity, architecture, projects, sprints, backlog`.
 ## Belum tersedia (roadmap)
 
 - SLA berbasis jam kerja/kalender libur (saat ini kalender 24×7)
-- Notifikasi email/chat dan eskalasi otomatis
+- Notifikasi email/chat dan eskalasi otomatis (notifikasi in-app sudah ada)
+- Penagihan (billing) otomatis & self-service upgrade paket
 - SSO (SAML/OIDC) dan MFA
 - Lampiran file/evidence (saat ini berupa link)
-- Ekspor laporan (PDF/Excel) dan template laporan regulator
-- Multi-tenant (saat ini satu organisasi per deployment)
+- Ekspor laporan PDF dan template laporan regulator (ekspor CSV per modul sudah ada)
+- Dashboard & laporan memakai agregasi in-memory per tenant — perlu pipeline agregasi/pre-compute untuk tenant sangat besar
+- Database terpisah per tenant (saat ini shared database dengan isolasi per field `tenant`)
 - Integrasi monitoring/discovery untuk CMDB
 
 ## Referensi regulasi

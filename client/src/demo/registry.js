@@ -1,10 +1,9 @@
 // Registry resource untuk backend demo — cermin dari server/src/resources.js
-import { ROLE_KEYS, hasRole } from '../../../shared/roles.mjs';
+// Hak akses berasal dari shared/permissions.mjs (+ override per tenant), sama seperti server.
+import { hasRole } from '../../../shared/roles.mjs';
 import { workflows } from '../../../shared/workflows.mjs';
 import { calculatePriority, riskScore } from '../../../shared/priority.mjs';
 
-const ALL = ['*'];
-const STAFF = ROLE_KEYS.filter((r) => r !== 'requester');
 export const isRequesterOnly = (u) => !u.roles.some((r) => r !== 'requester');
 export const same = (a, b) => a && b && String(a._id || a) === String(b._id || b);
 const ownTickets = (u) => (isRequesterOnly(u) ? (d) => same(d.requester, u) || same(d.createdBy, u) : null);
@@ -17,8 +16,7 @@ const TICKET_REFS = { requester: 'users', assignee: 'users', service: 'services'
 
 export const RESOURCES = {
   incidents: {
-    prefix: 'INC', label: 'Incident', read: ALL, create: ALL,
-    write: ['service_desk', 'technician', 'incident_manager', 'security_officer'],
+    prefix: 'INC', label: 'Incident',
     workflow: workflows.incident, sla: 'incident', initial: 'new',
     search: ['number', 'title', 'description'],
     refs: { ...TICKET_REFS, relatedProblem: 'problems' },
@@ -35,7 +33,7 @@ export const RESOURCES = {
     },
   },
   requests: {
-    prefix: 'REQ', label: 'Service Request', read: ALL, create: ALL, write: ['service_desk', 'technician'],
+    prefix: 'REQ', label: 'Service Request',
     workflow: workflows.request, sla: 'request', initial: 'submitted',
     search: ['number', 'title', 'description'],
     refs: { ...TICKET_REFS, approver: 'users' },
@@ -46,13 +44,13 @@ export const RESOURCES = {
     beforeCreate: (doc, user, db) => {
       if (isRequesterOnly(user)) doc.requester = user._id;
       doc.requester = doc.requester || user._id;
-      const svc = doc.service && db.services.find((s) => s._id === doc.service);
+      const svc = doc.service && db.services.find((s) => s._id === doc.service && s.tenant === doc.tenant);
       if (svc?.requiresApproval) doc.requiresApproval = true;
     },
     beforeSave: setPriority,
   },
   problems: {
-    prefix: 'PRB', label: 'Problem', read: STAFF, write: ['problem_manager', 'incident_manager', 'technician'],
+    prefix: 'PRB', label: 'Problem',
     workflow: workflows.problem, initial: 'new', search: ['number', 'title', 'description', 'rootCause'],
     refs: { assignee: 'users', service: 'services', configurationItem: 'configuration-items', relatedChange: 'changes' },
     defaults: { impact: 2, urgency: 2, knownError: false },
@@ -60,7 +58,6 @@ export const RESOURCES = {
   },
   changes: {
     prefix: 'CHG', label: 'Change',
-    read: STAFF, write: ['change_manager', 'technician', 'architect', 'project_manager', 'security_officer', 'asset_manager', 'cab_member'],
     workflow: workflows.change, initial: 'draft', search: ['number', 'title', 'description'],
     refs: { requester: 'users', assignee: 'users', service: 'services', configurationItems: 'configuration-items', relatedProblem: 'problems', relatedProject: 'projects' },
     defaults: { type: 'normal', risk: 'medium', impact: 2, approvals: [], requiredApprovals: 1 },
@@ -68,28 +65,28 @@ export const RESOURCES = {
     beforeCreate: (doc, user) => { doc.requester = doc.requester || user._id; },
   },
   services: {
-    prefix: 'SVC', label: 'Service', read: ALL, write: ['asset_manager', 'architect'], remove: ['admin'],
+    prefix: 'SVC', label: 'Service',
     search: ['name', 'description', 'requestCategory'], refs: { owner: 'users', dependsOn: 'services' },
     defaults: { type: 'business', status: 'live', criticality: 'medium', requestable: false, requiresApproval: false },
   },
   'configuration-items': {
-    prefix: 'CI', label: 'Configuration Item', read: STAFF, write: ['asset_manager', 'technician'], remove: ['asset_manager'],
+    prefix: 'CI', label: 'Configuration Item',
     search: ['number', 'name', 'hostname', 'ipAddress'],
     refs: { owner: 'users', services: 'services', dependsOn: 'configuration-items', asset: 'assets', vendor: 'vendors' },
     defaults: { ciType: 'server', status: 'active', environment: 'production', hostingCountry: 'Indonesia', dataClassification: 'internal', processesPersonalData: false },
   },
   assets: {
-    prefix: 'AST', label: 'Asset', read: STAFF, write: ['asset_manager'],
+    prefix: 'AST', label: 'Asset',
     search: ['number', 'name', 'assetTag', 'serialNumber', 'model'], refs: { assignedTo: 'users', vendor: 'vendors' },
     defaults: { category: 'hardware', status: 'in_stock', currency: 'IDR' },
   },
   vendors: {
-    prefix: 'VND', label: 'Vendor', read: STAFF, write: ['vendor_manager', 'risk_officer'],
+    prefix: 'VND', label: 'Vendor',
     search: ['number', 'name', 'contractNumber'], refs: {},
     defaults: { category: 'other', status: 'active', criticality: 'medium', dataLocation: 'Indonesia', rightToAudit: false },
   },
   knowledge: {
-    prefix: 'KB', label: 'Knowledge Article', read: ALL, write: ['knowledge_manager', 'service_desk', 'technician', 'problem_manager'],
+    prefix: 'KB', label: 'Knowledge Article',
     workflow: workflows.knowledge, initial: 'draft', search: ['number', 'title', 'content', 'category'],
     refs: { author: 'users', reviewer: 'users', service: 'services', relatedProblem: 'problems' },
     defaults: { articleType: 'how_to', audience: 'internal', views: 0, helpful: 0 },
@@ -97,7 +94,7 @@ export const RESOURCES = {
     beforeCreate: (doc, user) => { doc.author = doc.author || user._id; },
   },
   risks: {
-    prefix: 'RSK', label: 'Risk', read: STAFF, write: ['risk_officer', 'security_officer'],
+    prefix: 'RSK', label: 'Risk',
     workflow: workflows.risk, initial: 'identified', search: ['number', 'title', 'description'],
     refs: { owner: 'users', relatedVendor: 'vendors', relatedAssets: 'configuration-items', relatedControls: 'controls' },
     defaults: { category: 'operational', nistFunction: '', likelihood: 3, impact: 3 },
@@ -111,39 +108,39 @@ export const RESOURCES = {
     },
   },
   controls: {
-    label: 'Control', read: STAFF, write: ['risk_officer', 'security_officer'],
+    label: 'Control',
     search: ['code', 'title', 'domain', 'frameworkName'], refs: { owner: 'users' }, defaultSort: 'frameworkId code',
     defaults: { status: 'not_assessed', nistFunction: '' },
   },
   continuity: {
-    prefix: 'BCP', label: 'Continuity Plan', read: STAFF, write: ['risk_officer', 'asset_manager', 'security_officer'],
+    prefix: 'BCP', label: 'Continuity Plan',
     search: ['number', 'name', 'drSite'], refs: { owner: 'users', services: 'services' }, defaults: { planType: 'drp', status: 'draft' },
   },
   architecture: {
-    prefix: 'ARC', label: 'Architecture Component', read: STAFF, write: ['architect'],
+    prefix: 'ARC', label: 'Architecture Component',
     search: ['number', 'name', 'description'],
     refs: { owner: 'users', relatedServices: 'services', relatedCIs: 'configuration-items', dependsOn: 'architecture' },
     defaults: { domain: 'application', buildingBlockType: 'sbb', admPhase: 'preliminary', state: 'baseline', lifecycle: 'tolerate', status: 'draft' },
   },
   projects: {
-    prefix: 'PRJ', label: 'Project', read: STAFF, write: ['project_manager'], workflow: workflows.project, initial: 'initiating',
+    prefix: 'PRJ', label: 'Project', workflow: workflows.project, initial: 'initiating',
     search: ['number', 'name', 'code', 'description'], refs: { manager: 'users', relatedServices: 'services' },
     defaults: { approach: 'hybrid', health: 'green', percentComplete: 0 },
   },
   sprints: {
-    prefix: 'SPR', label: 'Sprint', read: STAFF, write: ['project_manager'], workflow: workflows.sprint, initial: 'planned',
+    prefix: 'SPR', label: 'Sprint', workflow: workflows.sprint, initial: 'planned',
     search: ['number', 'name', 'goal'], refs: { project: 'projects' }, required: { project: 'Proyek wajib dipilih' },
   },
   backlog: {
-    prefix: 'PBI', label: 'Backlog Item', read: STAFF, write: ['project_manager', 'technician', 'architect'],
+    prefix: 'PBI', label: 'Backlog Item',
     search: ['number', 'title', 'description'],
     refs: { project: 'projects', sprint: 'sprints', assignee: 'users', relatedChange: 'changes' },
     defaults: { itemType: 'story', status: 'backlog', priority: 'should' }, required: { project: 'Proyek wajib dipilih' },
   },
   'sla-policies': {
-    label: 'SLA Policy', read: STAFF, write: ['incident_manager'], remove: ['admin'], search: ['name'], refs: {},
+    label: 'SLA Policy', search: ['name'], refs: {},
     defaultSort: 'appliesTo priority', defaults: { active: true }, noActivity: true,
   },
 };
 
-export { hasRole, STAFF };
+export { hasRole };

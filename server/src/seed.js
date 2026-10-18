@@ -111,12 +111,13 @@ async function seedBank() {
       service: [svcCore, svcMobile, svcEmail][i % 3]._id, assignee: u.tech._id, requester: u.user._id,
     }, u.servicedesk);
     const resolvedAt = new Date(created.getTime() + resolveH * 36e5);
-    await resources.incidents.model.updateOne({ _id: doc._id }, {
+    // collection.updateOne (driver native): createdAt bersifat immutable di Mongoose
+    await resources.incidents.model.collection.updateOne({ _id: doc._id }, {
       $set: {
         createdAt: created, status: 'closed', resolvedAt, closedAt: resolvedAt, resolutionCode: 'solved_permanent', resolutionNotes: 'Diselesaikan',
         'sla.resolvedAt': resolvedAt, 'sla.respondedAt': created, 'sla.resolutionBreached': resolvedAt > new Date(created.getTime() + doc.sla.targetMinutes * 6e4),
       },
-    }, { timestamps: false });
+    });
   }
   await make('requests', { title: 'Laptop untuk pegawai baru', service: svc['Permintaan Perangkat Baru']._id, impact: 3, urgency: 3, quantity: 1, neededBy: days(7), approver: u.incident._id, requester: u.user._id }, u.user);
   await make('requests', { title: 'Akses modul pelaporan', service: svc['Permintaan Akses Aplikasi']._id, impact: 3, urgency: 2, requester: u.user._id }, u.user);
@@ -130,7 +131,7 @@ async function seedBank() {
   await make('changes', { title: 'Patch bulanan OS server non-kritis', type: 'standard', risk: 'low', impact: 3, service: svcEmail._id, plannedStart: days(5), plannedEnd: days(5.2), implementationPlan: 'Sesuai SOP patching', backoutPlan: 'Rollback snapshot VM', status: 'scheduled' }, u.tech);
   for (const [title, outcome, d] of [['Upgrade firmware switch core', 'successful', -20], ['Rilis mobile banking v5.2', 'successful_with_issues', -12], ['Migrasi sertifikat TLS', 'successful', -6], ['Perubahan konfigurasi firewall', 'backed_out', -3]]) {
     const c = await make('changes', { title, type: 'normal', risk: 'medium', impact: 2, plannedStart: days(d), plannedEnd: days(d + 0.1), implementationPlan: '-', backoutPlan: '-', outcome, pirNotes: 'PIR selesai', status: 'closed' }, u.change);
-    await resources.changes.model.updateOne({ _id: c._id }, { $set: { createdAt: days(d - 3), closedAt: days(d + 0.2) } }, { timestamps: false });
+    await resources.changes.model.collection.updateOne({ _id: c._id }, { $set: { createdAt: days(d - 3), closedAt: days(d + 0.2) } });
   }
 
   await make('knowledge', { title: 'Cara reset password email secara mandiri', articleType: 'how_to', audience: 'public', category: 'Akun', content: '1. Buka portal SSO\n2. Klik "Lupa password"\n3. Ikuti verifikasi OTP', status: 'published', publishedAt: new Date(), service: svcEmail._id, author: u.knowledge._id }, u.knowledge);

@@ -3,8 +3,15 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter, HashRouter } from 'react-router-dom';
 import App from './App.jsx';
 import { AuthProvider } from './auth.jsx';
+import { ToastProvider } from './components/ui.jsx';
 import { DEMO } from './api.js';
 import './styles.css';
+
+try {
+  document.documentElement.dataset.theme = localStorage.getItem('itsm_theme') || 'light';
+} catch {
+  /* abaikan */
+}
 
 // Frontend portal (login) — disajikan di /portal/.
 // GitHub Pages tidak mendukung SPA fallback, jadi mode demo memakai hash routing (#/m/incidents)
@@ -15,7 +22,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <Router {...routerProps}>
       <AuthProvider>
-        <App />
+        <ToastProvider>
+          <App />
+        </ToastProvider>
       </AuthProvider>
     </Router>
   </React.StrictMode>
