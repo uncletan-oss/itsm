@@ -11,7 +11,25 @@ export class ApiError extends Error {
   }
 }
 
-export async function api(path, { method = 'GET', body, query } = {}) {
+export const DEMO = import.meta.env.VITE_DEMO === 'true';
+
+// Mode demo (GitHub Pages): request dilayani backend tiruan di browser, tanpa server.
+async function demoApi(path, { method = 'GET', body, query } = {}) {
+  const { handle } = await import('./demo/server.js');
+  try {
+    return await handle(method, path, { body, query, token: getToken() });
+  } catch (err) {
+    if (err.status === 401 && path !== '/auth/login') setToken(null);
+    const details = err.details && typeof err.details === 'object' ? Object.values(err.details).join('; ') : '';
+    throw new ApiError(err.status || 500, [err.message, details].filter(Boolean).join(': '), err.details);
+  }
+}
+
+export async function api(path, opts = {}) {
+  return DEMO ? demoApi(path, opts) : httpApi(path, opts);
+}
+
+async function httpApi(path, { method = 'GET', body, query } = {}) {
   const qs = query ? '?' + new URLSearchParams(Object.entries(query).filter(([, v]) => v !== '' && v != null)) : '';
   const res = await fetch(`/api${path}${qs}`, {
     method,
@@ -23,7 +41,7 @@ export async function api(path, { method = 'GET', body, query } = {}) {
   });
   if (res.status === 401 && path !== '/auth/login') {
     setToken(null);
-    window.location.href = '/login';
+    window.location.href = import.meta.env.BASE_URL;
   }
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));

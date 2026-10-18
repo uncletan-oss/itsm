@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:demo": "VITE_DEMO=true vite build",
+    "dev:demo": "VITE_DEMO=true vite",
     "preview": "vite preview"
   },
   "dependencies": {

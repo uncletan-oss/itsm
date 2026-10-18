@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const config = require('../config');
 const User = require('../models/User');
 const { HttpError } = require('./error');
+const { hasRole } = require('../../../shared/roles.mjs');
 
 async function authenticate(req, res, next) {
   try {
@@ -18,10 +19,6 @@ async function authenticate(req, res, next) {
   }
 }
 
-function hasRole(user, roles) {
-  if (!roles || roles.includes('*')) return true;
-  return user.roles.includes('admin') || user.roles.some((r) => roles.includes(r));
-}
 
 function authorize(...roles) {
   return (req, res, next) =>

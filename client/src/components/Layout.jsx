@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { api } from '../api.js';
+import { api, DEMO } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { MODULES, NAV_GROUPS } from '../config/modules.js';
 
@@ -57,10 +57,29 @@ export default function Layout() {
             <button className="btn" onClick={logout}>Keluar</button>
           </div>
         </header>
+        {DEMO && <DemoBanner />}
         <main className="content">
           <Outlet />
         </main>
       </div>
+    </div>
+  );
+}
+
+function DemoBanner() {
+  const reset = async () => {
+    if (!window.confirm('Kembalikan semua data demo ke kondisi awal?')) return;
+    const { resetDemo } = await import('../demo/server.js');
+    resetDemo();
+    window.location.reload();
+  };
+  return (
+    <div className="demo-banner">
+      <span>
+        <b>Mode demo</b> — berjalan sepenuhnya di browser Anda (data disimpan di localStorage, tanpa server). Versi lengkap memakai
+        Node.js + MongoDB.
+      </span>
+      <button className="btn" onClick={reset}>Reset data demo</button>
     </div>
   );
 }

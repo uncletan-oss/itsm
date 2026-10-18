@@ -6,6 +6,9 @@ Indonesia seperti **PADK OJK No. 1 Tahun 2026** dan **POJK 11/POJK.03/2022** (Pe
 Paket regulasi aktif mengikuti **industri** yang dipilih, jadi satu aplikasi bisa dipakai bank, LJK nonbank,
 pemerintahan (SPBE), rumah sakit, ritel, manufaktur, dan industri lain.
 
+**🌐 Demo online (GitHub Pages):** https://uncletan-oss.github.io/itsm/ — login cepat dengan tombol peran
+(admin, service desk, teknisi, change manager, CAB, risk officer, PM, auditor, end user).
+
 > ⚠️ Kontrol kepatuhan di aplikasi ini adalah **ringkasan tingkat domain** untuk self-assessment,
 > bukan salinan naskah resmi. Tim kepatuhan/legal wajib memverifikasi dan melengkapinya
 > terhadap teks resmi (pasal, lampiran, FAQ) sebelum dipakai sebagai dasar audit.
@@ -65,6 +68,7 @@ tambahkan objek di `server/src/data/frameworks.js`, petakan ke industri, lalu kl
 ## Struktur
 
 ```
+shared/   Logika bisnis murni (workflow, SLA, prioritas, RBAC, katalog regulasi) — dipakai server & demo
 server/   Express + Mongoose API
   src/models/        Skema MongoDB (itsm, assets, governance, projects, user, audit, setting)
   src/resources.js   Registry resource: RBAC, penomoran, workflow, hook bisnis
@@ -76,11 +80,12 @@ client/   React 18 + Vite + React Router
   src/config/modules.js   Definisi field/kolom tiap modul (UI generik)
   src/components/         List, Form, Detail (transisi, CAB, SLA, aktivitas), Layout
   src/pages/              Dashboard, Portal, Kepatuhan, Pengaturan, Pengguna, Audit Log
+  src/demo/               Backend tiruan di browser untuk mode demo / GitHub Pages
 ```
 
 ## Menjalankan
 
-Prasyarat: Node.js 20+ dan MongoDB 6+ (lokal atau MongoDB Atlas).
+Prasyarat: Node.js 22.12+ dan MongoDB 6+ (lokal atau MongoDB Atlas).
 
 ```bash
 npm install
@@ -100,6 +105,18 @@ Mode production (satu container, API sekaligus menyajikan build React):
 JWT_SECRET=$(openssl rand -hex 32) docker compose up -d --build
 docker compose exec app node server/src/seed.js   # opsional: data demo
 ```
+
+### Mode demo (GitHub Pages, tanpa server)
+
+GitHub Pages hanya menyajikan file statis, jadi build demo (`npm run build:demo -w client`) memakai backend tiruan
+yang berjalan di browser (`client/src/demo/`). Backend ini meniru kontrak REST API dan memakai logika bisnis yang sama
+dari `shared/` (workflow, SLA, prioritas, katalog regulasi). Data tersimpan di localStorage masing-masing pengunjung
+dan bisa dikembalikan ke awal dengan tombol **Reset data demo**. Mode demo tidak punya keamanan sungguhan
+(password dicek di browser), jadi jangan dipakai untuk data asli.
+
+Deploy dilakukan otomatis oleh `.github/workflows/pages.yml` setiap ada push. Kalau Pages belum aktif, buka
+**Settings → Pages → Build and deployment → Source: GitHub Actions**, lalu jalankan ulang workflow-nya.
+Coba lokal: `npm run dev:demo -w client`.
 
 Tes: `npm test`. Integration test memakai MongoDB di `MONGO_URI_TEST` (default `mongodb://127.0.0.1:27017/itsm_test`)
 dan otomatis dilewati kalau MongoDB tidak tersedia.

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "main": "src/index.js",
+  "engines": { "node": ">=22.12" },
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
