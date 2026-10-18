@@ -1,0 +1,23 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - "127.0.0.1:27017:27017"
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    environment:
+      MONGO_URI: mongodb://mongo:27017/itsm
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET (min. 32 karakter)}
+      CORS_ORIGIN: http://localhost:4000
+    ports:
+      - "4000:4000"
+
+volumes:
+  mongo-data:

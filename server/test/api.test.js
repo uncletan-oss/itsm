@@ -80,6 +80,14 @@ test('API ITSM end-to-end', async (t) => {
     assert.strictEqual(res.body.status, 'closed');
   });
 
+  await t.test('work note internal tidak terlihat oleh end user', async () => {
+    await request(app).post(`/api/incidents/${inc._id}/comments`).set(auth(agent)).send({ message: 'rahasia internal', type: 'worknote' }).expect(201);
+    await request(app).post(`/api/incidents/${inc._id}/comments`).set(auth(enduser)).send({ message: 'coba worknote', type: 'worknote' }).expect(201);
+    const res = await request(app).get(`/api/incidents/${inc._id}`).set(auth(enduser)).expect(200);
+    assert.ok(!res.body.activities.some((a) => a.message === 'rahasia internal'));
+    assert.strictEqual(res.body.activities.find((a) => a.message === 'coba worknote').type, 'comment');
+  });
+
   await t.test('end user hanya melihat tiketnya sendiri', async () => {
     await request(app).post('/api/incidents').set(auth(agent)).send({ title: 'Internal', impact: 3, urgency: 3 }).expect(201);
     const res = await request(app).get('/api/incidents').set(auth(enduser)).expect(200);

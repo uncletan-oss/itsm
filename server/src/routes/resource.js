@@ -29,9 +29,11 @@ function populateQuery(q, def) {
   return q;
 }
 
-function decorate(doc) {
+function decorate(doc, canSeeWorknotes = true) {
   const obj = doc.toJSON ? doc.toJSON() : doc;
   if (obj.sla) obj.slaStatus = slaStatus(obj.sla);
+  // Work note bersifat internal: tidak dikirim ke pengguna non-staf
+  if (obj.activities && !canSeeWorknotes) obj.activities = obj.activities.filter((a) => a.type !== 'worknote');
   return obj;
 }
 
@@ -53,9 +55,12 @@ module.exports = function buildResourceRouter(name, def) {
     return doc;
   }
 
-  const respond = async (res, doc, status = 200) => {
+  const respond = async (req, res, doc, status = 200) => {
     const full = await populateQuery(Model.findById(doc._id), def);
-    res.status(status).json(decorate(full));
+    res.status(status).json({
+      ...decorate(full, hasRole(req.user, def.write)),
+      allowedTransitions: def.workflow?.transitions[full.status] || [],
+    });
   };
 
   // LIST — ?q=&status=&page=&limit=&sort=&<field>=<value>
@@ -91,8 +96,7 @@ module.exports = function buildResourceRouter(name, def) {
     can('read'),
     asyncHandler(async (req, res) => {
       const doc = await load(req);
-      const full = await populateQuery(Model.findById(doc._id), def).populate('activities.by', 'name');
-      res.json({ ...decorate(full), allowedTransitions: def.workflow?.transitions[doc.status] || [] });
+      await respond(req, res, doc);
     })
   );
 
@@ -109,7 +113,7 @@ module.exports = function buildResourceRouter(name, def) {
       doc.activities.push({ type: 'system', message: `${def.label} dibuat`, by: req.user._id, byName: req.user.name });
       await doc.save();
       await audit(req, 'create', name, doc);
-      await respond(res, doc, 201);
+      await respond(req, res, doc, 201);
     })
   );
 
@@ -126,7 +130,7 @@ module.exports = function buildResourceRouter(name, def) {
       const changes = diff(before, doc.toObject(), [...Object.keys(updates), 'priority']);
       await doc.save();
       if (Object.keys(changes).length) await audit(req, 'update', name, doc, changes);
-      await respond(res, doc);
+      await respond(req, res, doc);
     })
   );
 
@@ -152,7 +156,7 @@ module.exports = function buildResourceRouter(name, def) {
       const type = req.body.type === 'worknote' && hasRole(req.user, def.write) ? 'worknote' : 'comment';
       doc.activities.push({ type, message, by: req.user._id, byName: req.user.name });
       await doc.save();
-      await respond(res, doc, 201);
+      await respond(req, res, doc, 201);
     })
   );
 
@@ -172,7 +176,7 @@ module.exports = function buildResourceRouter(name, def) {
         if (err) throw new HttpError(422, err);
         await performTransition(req, name, def, doc, to, note);
         await audit(req, 'transition', name, doc, { status: { from: before.status, to }, ...diff(before, doc.toObject(), Object.keys(updates)) });
-        await respond(res, doc);
+        await respond(req, res, doc);
       })
     );
   }
@@ -204,7 +208,7 @@ module.exports = function buildResourceRouter(name, def) {
           await doc.save();
         }
         await audit(req, 'approval', name, doc, { decision, comment: req.body.comment });
-        await respond(res, doc);
+        await respond(req, res, doc);
       })
     );
   }
