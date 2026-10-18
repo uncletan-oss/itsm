@@ -21,6 +21,7 @@ function createApp() {
   app.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date() }));
 
   app.use('/api/auth', rateLimit({ windowMs: 15 * 60 * 1000, limit: 50 }), require('./routes/auth'));
+  app.use('/api/public', rateLimit({ windowMs: 60 * 1000, limit: 120 }), require('./routes/public'));
   app.use('/api', authenticate);
   app.use('/api/users', require('./routes/users'));
   app.use('/api/settings', require('./routes/settings'));
@@ -32,10 +33,11 @@ function createApp() {
   }
   app.use('/api', notFound);
 
-  // Production: sajikan build React dari client/dist
+  // Production: sajikan build React — situs publik di / dan portal di /portal/
   const dist = path.join(__dirname, '..', '..', 'client', 'dist');
   if (fs.existsSync(dist)) {
     app.use(express.static(dist));
+    app.get(['/portal', '/portal/*'], (req, res) => res.sendFile(path.join(dist, 'portal', 'index.html')));
     app.get('*', (req, res) => res.sendFile(path.join(dist, 'index.html')));
   }
 

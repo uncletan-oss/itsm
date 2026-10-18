@@ -6,8 +6,23 @@ Indonesia seperti **PADK OJK No. 1 Tahun 2026** dan **POJK 11/POJK.03/2022** (Pe
 Paket regulasi aktif mengikuti **industri** yang dipilih, jadi satu aplikasi bisa dipakai bank, LJK nonbank,
 pemerintahan (SPBE), rumah sakit, ritel, manufaktur, dan industri lain.
 
-**🌐 Demo online (GitHub Pages):** https://uncletan-oss.github.io/itsm/ — login cepat dengan tombol peran
-(admin, service desk, teknisi, change manager, CAB, risk officer, PM, auditor, end user).
+**🌐 Demo online (GitHub Pages):**
+- Situs publik (tanpa login): https://uncletan-oss.github.io/itsm/
+- Portal (login): https://uncletan-oss.github.io/itsm/portal/ — login cepat dengan tombol peran
+  (admin, service desk, teknisi, change manager, CAB, risk officer, PM, auditor, end user).
+
+## Dua frontend
+
+| Frontend | URL | Untuk | Isi |
+|---|---|---|---|
+| **Publik** | `/` | Siapa saja, tanpa login | Beranda & pencarian solusi, status layanan (otomatis dari incident/change), pusat bantuan (knowledge base publik + katalog layanan), framework & regulasi per industri |
+| **Portal** | `/portal/` | Pengguna terautentikasi (end user s.d. admin) | Seluruh modul ITSM, GRC, arsitektur & proyek sesuai peran |
+
+Keduanya dibangun dari satu proyek Vite (multi-page: `client/index.html` dan `client/portal/index.html`).
+Situs publik hanya memakai endpoint `/api/public/*` yang mengembalikan data aman untuk publik
+(status per layanan tanpa detail tiket, artikel berstatus *published* dengan audiens *public*, dan katalog permintaan).
+Tombol aksi di situs publik (laporkan gangguan, ajukan permintaan) membuka portal, dan setelah login pengguna
+langsung diarahkan ke halaman yang dituju.
 
 > ⚠️ Kontrol kepatuhan di aplikasi ini adalah **ringkasan tingkat domain** untuk self-assessment,
 > bukan salinan naskah resmi. Tim kepatuhan/legal wajib memverifikasi dan melengkapinya
@@ -79,6 +94,8 @@ server/   Express + Mongoose API
 client/   React 18 + Vite + React Router
   src/config/modules.js   Definisi field/kolom tiap modul (UI generik)
   src/components/         List, Form, Detail (transisi, CAB, SLA, aktivitas), Layout
+  index.html, src/public/ Frontend publik
+  portal/index.html       Entry frontend portal (src/main.jsx)
   src/pages/              Dashboard, Portal, Kepatuhan, Pengaturan, Pengguna, Audit Log
   src/demo/               Backend tiruan di browser untuk mode demo / GitHub Pages
 ```
@@ -94,7 +111,7 @@ npm run seed                            # data demo (SEED_INDUSTRY=banking|gover
 npm run dev                             # API :4000 + React :5173
 ```
 
-Buka http://localhost:5173 dan login dengan `admin@itsm.local` / `Password123!`.
+Buka http://localhost:5173 (situs publik) atau http://localhost:5173/portal/ dan login dengan `admin@itsm.local` / `Password123!`.
 Akun demo lain (password sama): `servicedesk`, `tech`, `incident`, `change`, `cab`, `asset`, `knowledge`,
 `risk`, `ciso`, `architect`, `pm`, `vendor`, `auditor`, `user` (end user) — semuanya `@itsm.local`.
 Ganti atau hapus akun demo sebelum dipakai di production.
@@ -123,10 +140,11 @@ dan otomatis dilewati kalau MongoDB tidak tersedia.
 
 ## Ringkasan API
 
-Semua endpoint di bawah `/api` (kecuali `/api/auth/login` dan `/api/health`) membutuhkan header `Authorization: Bearer <token>`.
+Semua endpoint di bawah `/api` (kecuali `/api/public/*`, `/api/auth/login` dan `/api/health`) membutuhkan header `Authorization: Bearer <token>`.
 
 | Endpoint | Keterangan |
 |---|---|
+| `GET /public/info`, `/public/status`, `/public/knowledge[/:id]`, `/public/catalog` | Situs publik (tanpa login) |
 | `POST /auth/login`, `GET /auth/me`, `POST /auth/change-password` | Autentikasi |
 | `GET/POST /:resource`, `GET/PUT/DELETE /:resource/:id` | CRUD. Filter: `?q=`, `?status=a,b`, `?<field>=`, `?page=`, `?sort=` |
 | `POST /:resource/:id/transition` `{to, note, ...fields}` | Transisi status sesuai workflow |

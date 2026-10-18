@@ -3,6 +3,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { api, DEMO } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { MODULES, NAV_GROUPS } from '../config/modules.js';
+import { publicHref } from '../links.js';
 
 export default function Layout() {
   const { user, logout, hasRole, isStaff } = useAuth();
@@ -53,6 +54,7 @@ export default function Layout() {
           <button className="btn hamburger" onClick={() => setOpen(!open)}>☰</button>
           <span className="muted small">{org && `Industri: ${org.industry}`}</span>
           <div className="row">
+            <a className="small" href={publicHref('/')}>🌐 Situs publik</a>
             <span className="small"><b>{user.name}</b> <span className="muted">({user.roles.join(', ')})</span></span>
             <button className="btn" onClick={logout}>Keluar</button>
           </div>

@@ -160,6 +160,13 @@ async function main() {
     title: 'Cara reset password email secara mandiri', articleType: 'how_to', audience: 'public', category: 'Akun',
     content: '1. Buka portal SSO\n2. Klik "Lupa password"\n3. Ikuti verifikasi OTP', status: 'published', publishedAt: new Date(), service: svcEmail._id,
   }, u.knowledge);
+  for (const [title, category, content] of [
+    ['Cara mengajukan permintaan laptop baru', 'Perangkat Keras', '1. Masuk ke Portal\n2. Pilih "Permintaan Laptop Baru" di katalog\n3. Isi kebutuhan dan tanggal dibutuhkan\n4. Permintaan akan diteruskan ke atasan untuk persetujuan'],
+    ['Mengenali email phishing', 'Keamanan', 'Waspadai pengirim yang tidak dikenal, tautan yang mendesak, dan permintaan data pribadi/OTP. Laporkan email mencurigakan melalui Portal → Laporkan Gangguan dengan kategori Keamanan.'],
+    ['Menghubungkan VPN kantor dari rumah', 'Jaringan', '1. Instal aplikasi VPN resmi\n2. Masuk menggunakan akun domain\n3. Setujui notifikasi MFA di ponsel'],
+  ]) {
+    await make('knowledge', { title, category, content, articleType: 'how_to', audience: 'public', status: 'published', publishedAt: new Date() }, u.knowledge);
+  }
   await make('knowledge', { title: 'Workaround lambatnya transaksi teller', articleType: 'known_error', audience: 'it_only', relatedProblem: prb._id, content: 'Restart connection pool aplikasi.' }, u.incident);
 
   await make('risks', {

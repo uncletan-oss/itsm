@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuth } from '../auth.jsx';
 import { DEMO } from '../api.js';
+import { publicHref } from '../links.js';
 
 const DEMO_ACCOUNTS = [
   ['admin', 'Admin'], ['servicedesk', 'Service Desk'], ['tech', 'Teknisi'], ['change', 'Change Manager'], ['cab', 'Anggota CAB'],
@@ -30,7 +31,7 @@ export default function Login() {
   return (
     <div className="login-wrap">
       <form className="card login" onSubmit={submit}>
-        <div className="brand"><div className="logo">IT</div><div className="brand-name">ITSM Platform</div></div>
+        <div className="brand"><div className="logo">IT</div><div className="brand-name">Portal ITSM</div></div>
         <p className="muted small">IT Service Management multi-industri — ITIL 4 · TOGAF · ITAM · NIST CSF · PMBOK · Scrum · Regulasi Indonesia</p>
         {error && <div className="alert">{error}</div>}
         <label><span>Email</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus required /></label>
@@ -49,6 +50,7 @@ export default function Login() {
         ) : (
           <p className="muted small">Demo (setelah <code>npm run seed</code>): admin@itsm.local / Password123!</p>
         )}
+        <a className="small center" href={publicHref('/')}>← Kembali ke situs publik</a>
       </form>
     </div>
   );

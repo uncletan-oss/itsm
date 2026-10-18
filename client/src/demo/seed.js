@@ -97,6 +97,13 @@ export function seed(api) {
   for (const s of ['submitted', 'assessment', 'approved', 'scheduled']) moveTo('changes', std, s, u.change);
 
   make('knowledge', { title: 'Cara reset password email secara mandiri', articleType: 'how_to', audience: 'public', category: 'Akun', content: '1. Buka portal SSO\n2. Klik "Lupa password"\n3. Ikuti verifikasi OTP', status: 'published', publishedAt: new Date().toISOString(), service: svcEmail._id, author: u.knowledge._id }, u.knowledge);
+  for (const [title, category, content] of [
+    ['Cara mengajukan permintaan laptop baru', 'Perangkat Keras', '1. Masuk ke Portal\n2. Pilih "Permintaan Laptop Baru" di katalog\n3. Isi kebutuhan dan tanggal dibutuhkan\n4. Permintaan akan diteruskan ke atasan untuk persetujuan'],
+    ['Mengenali email phishing', 'Keamanan', 'Waspadai pengirim yang tidak dikenal, tautan yang mendesak, dan permintaan data pribadi/OTP. Laporkan email mencurigakan melalui Portal → Laporkan Gangguan dengan kategori Keamanan.'],
+    ['Menghubungkan VPN kantor dari rumah', 'Jaringan', '1. Instal aplikasi VPN resmi\n2. Masuk menggunakan akun domain\n3. Setujui notifikasi MFA di ponsel'],
+  ]) {
+    make('knowledge', { title, category, content, articleType: 'how_to', audience: 'public', status: 'published', publishedAt: new Date().toISOString(), author: u.knowledge._id }, u.knowledge);
+  }
   make('knowledge', { title: 'Workaround lambatnya transaksi teller', articleType: 'known_error', audience: 'it_only', relatedProblem: prb._id, content: 'Restart connection pool aplikasi.' }, u.incident);
 
   make('risks', { title: 'Ketergantungan pada penyedia cloud tunggal', category: 'third_party', nistFunction: 'GV', owner: u.risk._id, likelihood: 3, impact: 4, existingControls: 'Kontrak dengan SLA & right-to-audit', treatment: 'mitigate', relatedVendor: vCloud._id, status: 'assessed' }, u.risk);

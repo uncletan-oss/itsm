@@ -9,8 +9,9 @@ import { computeDueDates, applyTransition, slaStatus } from '../../../shared/sla
 import { frameworks, industries } from '../../../shared/frameworks.mjs';
 import { RESOURCES, hasRole, isRequesterOnly, same } from './registry.js';
 import { seed, DEMO_PASSWORD } from './seed.js';
+import { serviceStatuses, publicMaintenance, publicArticle, publicService } from '../../../shared/public.mjs';
 
-const KEY = 'itsm_demo_db_v1';
+const KEY = 'itsm_demo_db_v2';
 const NAME_KEYED = ['services', 'configuration-items', 'assets', 'vendors', 'continuity', 'architecture', 'projects', 'sprints', 'sla-policies'];
 const ALWAYS_PROTECTED = ['_id', 'number', 'activities', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'sla', '__v', 'allowedTransitions', 'slaStatus'];
 
@@ -387,10 +388,34 @@ function dashboard(user) {
   };
 }
 
+// ---------- Endpoint publik (tanpa login) ----------
+function publicRoute([what, id], query) {
+  const kb = db.knowledge.filter((a) => a.status === 'published' && a.audience === 'public');
+  if (what === 'info') return { organizationName: db.settings.organizationName, industry: db.settings.industry, enabledFrameworks: db.settings.enabledFrameworks };
+  if (what === 'status') {
+    const services = sortBy(db.services.filter((s) => s.status === 'live' && s.type !== 'supporting'), 'name');
+    return { services: serviceStatuses(services, db.incidents, db.changes), maintenance: publicMaintenance(db.changes, services), updatedAt: new Date().toISOString() };
+  }
+  if (what === 'knowledge' && id) {
+    const a = kb.find((x) => x._id === id);
+    if (!a) throw new DemoError(404, 'Artikel tidak ditemukan');
+    a.views = (a.views || 0) + 1;
+    return publicArticle(a, true);
+  }
+  if (what === 'knowledge') {
+    const q = (query.q || '').toLowerCase();
+    const hit = (a) => !q || [a.title, a.content, a.category, ...(a.tags || [])].some((v) => String(v || '').toLowerCase().includes(q));
+    return { items: sortBy(kb.filter(hit), '-publishedAt').map((a) => publicArticle(a)) };
+  }
+  if (what === 'catalog') return { items: sortBy(db.services.filter((s) => s.status === 'live' && s.requestable), 'requestCategory name').map(publicService) };
+  throw new DemoError(404, 'Endpoint publik tidak ditemukan');
+}
+
 // ---------- Router ----------
 function route(method, path, body, query, token) {
   const parts = path.split('/').filter(Boolean);
   if (path === '/health') return { status: 'ok', mode: 'demo' };
+  if (parts[0] === 'public') return publicRoute(parts.slice(1), query);
   if (path === '/auth/login' && method === 'POST') {
     const email = String(body.email || '').toLowerCase().trim();
     const user = db.users.find((u) => u.email === email);

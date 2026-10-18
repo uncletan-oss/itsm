@@ -138,6 +138,20 @@ test('API ITSM end-to-end', async (t) => {
     await assert.rejects(AuditLog.deleteMany({}), /immutable/);
   });
 
+  await t.test('endpoint publik tanpa login, tanpa data sensitif', async () => {
+    const svc = await request(app).post('/api/services').set(auth(admin)).send({ name: 'Core Banking', criticality: 'critical' }).expect(201);
+    await request(app).post('/api/incidents').set(auth(agent)).send({ title: 'Down total', impact: 1, urgency: 1, service: svc.body._id }).expect(201);
+    const st = await request(app).get('/api/public/status').expect(200);
+    const core = st.body.services.find((s) => s.name === 'Core Banking');
+    assert.strictEqual(core.status, 'major_outage');
+    assert.ok(!JSON.stringify(st.body).includes('Down total'));
+    await request(app).post('/api/knowledge').set(auth(agent)).send({ title: 'Internal saja', audience: 'it_only' }).expect(201);
+    const kb = await request(app).get('/api/public/knowledge').expect(200);
+    assert.ok(!kb.body.items.some((a) => a.title === 'Internal saja'));
+    await request(app).get('/api/public/catalog').expect(200);
+    await request(app).get('/api/incidents').expect(401);
+  });
+
   await t.test('dashboard', async () => {
     const res = await request(app).get('/api/dashboard').set(auth(agent)).expect(200);
     assert.strictEqual(res.body.role, 'staff');

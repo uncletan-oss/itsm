@@ -41,7 +41,7 @@ async function httpApi(path, { method = 'GET', body, query } = {}) {
   });
   if (res.status === 401 && path !== '/auth/login') {
     setToken(null);
-    window.location.href = import.meta.env.BASE_URL;
+    window.location.href = `${import.meta.env.BASE_URL}portal/`;
   }
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
