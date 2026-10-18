@@ -36,7 +36,7 @@ const riskSchema = new Schema({
 riskSchema.plugin(basePlugin);
 
 const controlSchema = new Schema({
-  frameworkId: { type: String, required: true, index: true },
+  frameworkId: { type: String, required: true },
   frameworkName: String,
   code: { type: String, required: true },
   title: { type: String, required: true },
@@ -57,8 +57,8 @@ const controlSchema = new Schema({
   gapNotes: String,
   remediationPlan: String,
 });
-controlSchema.index({ frameworkId: 1, code: 1 }, { unique: true });
 controlSchema.plugin(basePlugin);
+controlSchema.index({ tenant: 1, frameworkId: 1, code: 1 }, { unique: true });
 
 // Business Continuity / Disaster Recovery (DRP wajib diuji berkala — POJK 11/2022, ISO 22301)
 const continuitySchema = new Schema({

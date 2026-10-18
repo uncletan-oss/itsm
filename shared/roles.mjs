@@ -1,6 +1,6 @@
 // Peran (RBAC) — dipetakan ke peran praktik ITIL 4 & tata kelola TI
 export const ROLES = {
-  admin: 'Administrator Sistem',
+  admin: 'Administrator Tenant',
   service_desk: 'Service Desk Agent',
   technician: 'Technical Support / Resolver Group',
   incident_manager: 'Incident Manager',
@@ -23,3 +23,6 @@ export function hasRole(user, roles) {
   if (!roles || roles.includes('*')) return true;
   return user.roles.includes('admin') || user.roles.some((r) => roles.includes(r));
 }
+
+/** Peran operator platform SaaS (tidak terikat tenant, tidak dapat melihat data tenant). */
+export const PLATFORM_ROLE = 'platform_admin';

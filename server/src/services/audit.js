@@ -13,15 +13,16 @@ function diff(before, after, keys) {
   return changes;
 }
 
-async function audit(req, action, resource, record, changes) {
+async function audit(req, action, resource, record, changes, tenantId) {
   try {
     await AuditLog.create({
+      tenant: tenantId !== undefined ? tenantId : req.tenant?._id || null,
       actor: req.user?._id,
       actorName: req.user?.name,
       action,
       resource,
       recordId: record?._id,
-      recordNumber: record?.number || record?.name || record?.title,
+      recordNumber: record?.number || record?.slug || record?.name || record?.title,
       changes,
       ip: req.ip,
     });

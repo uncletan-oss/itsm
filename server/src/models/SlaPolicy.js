@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { tenantPlugin } = require('./common');
 
 const slaSchema = new mongoose.Schema(
   {
@@ -12,6 +13,7 @@ const slaSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
-slaSchema.index({ appliesTo: 1, priority: 1 });
+slaSchema.plugin(tenantPlugin);
+slaSchema.index({ tenant: 1, appliesTo: 1, priority: 1 });
 
 module.exports = mongoose.model('SlaPolicy', slaSchema);

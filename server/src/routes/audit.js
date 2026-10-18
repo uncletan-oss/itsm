@@ -1,15 +1,15 @@
 const express = require('express');
 const AuditLog = require('../models/AuditLog');
-const { authorize } = require('../middleware/auth');
+const { pageGuard } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/error');
 
 const router = express.Router();
 
 router.get(
   '/',
-  authorize('auditor', 'risk_officer', 'security_officer'),
+  pageGuard('audit'),
   asyncHandler(async (req, res) => {
-    const filter = {};
+    const filter = { tenant: req.tenant._id };
     for (const k of ['resource', 'action', 'recordNumber']) if (typeof req.query[k] === 'string' && req.query[k]) filter[k] = req.query[k];
     if (typeof req.query.recordId === 'string' && /^[a-f\d]{24}$/i.test(req.query.recordId)) filter.recordId = req.query.recordId;
     const limit = Math.min(Number(req.query.limit) || 100, 500);

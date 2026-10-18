@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 // Jejak audit append-only (akuntabilitas & non-repudiation — POJK/PADK, ISO 27001 A.8.15, NIST CSF DE.CM)
 const auditSchema = new mongoose.Schema({
+  tenant: { type: mongoose.Schema.Types.ObjectId, ref: 'Tenant', index: true }, // null = aksi level platform
   at: { type: Date, default: Date.now, index: true },
   actor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   actorName: String,

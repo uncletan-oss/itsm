@@ -1,13 +1,15 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
-const { ROLE_KEYS } = require('../constants');
+const { ROLE_KEYS, PLATFORM_ROLE } = require('../constants');
 
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
-    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    // null = operator platform SaaS (tidak terikat tenant)
+    tenant: { type: mongoose.Schema.Types.ObjectId, ref: 'Tenant', default: null, index: true },
+    email: { type: String, required: true, lowercase: true, trim: true },
     passwordHash: { type: String, required: true, select: false },
-    roles: { type: [{ type: String, enum: ROLE_KEYS }], default: ['requester'] },
+    roles: { type: [{ type: String, enum: [...ROLE_KEYS, PLATFORM_ROLE] }], default: ['requester'] },
     department: String,
     title: String,
     phone: String,
@@ -18,6 +20,8 @@ const userSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+userSchema.index({ tenant: 1, email: 1 }, { unique: true });
 
 userSchema.methods.setPassword = async function setPassword(pw) {
   if (!pw || pw.length < 8) throw Object.assign(new Error('Password minimal 8 karakter'), { status: 400 });
