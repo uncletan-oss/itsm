@@ -61,10 +61,16 @@ export default function ResourceForm({ existing, onSaved, onCancel }) {
   const navigate = useNavigate();
   const toast = useToast();
   const { isStaff } = useAuth();
-  const [values, setValues] = useState(() => existing || Object.fromEntries(params.entries()));
+  const spawnFrom = params.get('_spawn'); // "sumber:id" dari aksi Buat terkait
+  const [values, setValues] = useState(() => existing || Object.fromEntries([...params.entries()].filter(([k]) => !k.startsWith('_'))));
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   useEffect(() => { if (existing) setValues(existing); }, [existing]);
+  useEffect(() => {
+    if (existing || !spawnFrom) return;
+    const [src, srcId] = spawnFrom.split(':');
+    api(`/${src}/${srcId}/spawn/${resource}`).then((prefill) => setValues((v) => ({ ...prefill, ...v }))).catch((e) => setError(e.message));
+  }, [spawnFrom, resource, existing]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -75,7 +81,7 @@ export default function ResourceForm({ existing, onSaved, onCancel }) {
       if (!existing) for (const k of Object.keys(body)) if (body[k] === null || (Array.isArray(body[k]) && !body[k].length)) delete body[k];
       const saved = existing
         ? await api(`/${resource}/${existing._id}`, { method: 'PUT', body })
-        : await api(`/${resource}`, { method: 'POST', body });
+        : await api(`/${resource}`, { method: 'POST', body: spawnFrom ? { ...body, _spawnFrom: spawnFrom } : body });
       invalidateOptions(resource);
       toast(existing ? 'Perubahan disimpan' : `${mod.label} ${saved.number || ''} dibuat`);
       if (onSaved) onSaved(saved);

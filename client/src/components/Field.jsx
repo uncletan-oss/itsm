@@ -49,8 +49,49 @@ function RefSelect({ path, value, onChange, multiple, labelField }) {
   );
 }
 
+/** Editor baris (mis. rincian PO, baris jurnal) — sub-field: text | number | select. */
+function LinesEditor({ field, value, onChange }) {
+  const rows = Array.isArray(value) ? value : [];
+  const set = (i, k, v) => onChange(rows.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
+  const sum = (k) => rows.reduce((s, r) => s + (Number(r[k]) || 0), 0);
+  const numeric = field.lines.filter((l) => l.type === 'number' && /debit|credit/.test(l.key));
+  return (
+    <div className="lines">
+      <table>
+        <thead><tr>{field.lines.map((l) => <th key={l.key}>{l.label}</th>)}<th /></tr></thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i}>
+              {field.lines.map((l) => (
+                <td key={l.key}>
+                  {l.type === 'select' ? (
+                    <select value={r[l.key] ?? ''} onChange={(e) => set(i, l.key, e.target.value)}>
+                      <option value="">—</option>
+                      {l.options.map(([k, lab]) => <option key={k} value={k}>{k} · {lab}</option>)}
+                    </select>
+                  ) : (
+                    <input type={l.type === 'number' ? 'number' : 'text'} step="any" value={r[l.key] ?? ''} onChange={(e) => set(i, l.key, l.type === 'number' ? (e.target.value === '' ? null : Number(e.target.value)) : e.target.value)} />
+                  )}
+                </td>
+              ))}
+              <td><button type="button" className="btn btn-ghost btn-sm" onClick={() => onChange(rows.filter((_, j) => j !== i))} aria-label="Hapus baris">×</button></td>
+            </tr>
+          ))}
+          {numeric.length > 0 && rows.length > 0 && (
+            <tr className="lines-total">
+              {field.lines.map((l) => <td key={l.key}>{numeric.includes(l) ? sum(l.key).toLocaleString('id-ID') : ''}</td>)}<td />
+            </tr>
+          )}
+        </tbody>
+      </table>
+      <button type="button" className="btn btn-sm" onClick={() => onChange([...rows, {}])}>+ Tambah baris</button>
+    </div>
+  );
+}
+
 export default function Field({ field, value, onChange }) {
   const { type } = field;
+  if (type === 'lines') return <LinesEditor field={field} value={value} onChange={onChange} />;
   if (type === 'textarea') return <textarea rows={field.rows || 4} value={value || ''} onChange={(e) => onChange(e.target.value)} />;
   if (type === 'number') return <input type="number" step="any" value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))} />;
   if (type === 'date') return <input type="date" value={toLocalInput(value)} onChange={(e) => onChange(e.target.value || null)} />;

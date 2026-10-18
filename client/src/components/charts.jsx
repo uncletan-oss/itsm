@@ -110,3 +110,109 @@ export function Gauge({ value, label, tone }) {
     </div>
   );
 }
+
+/** Sparkline kecil untuk kartu KPI. */
+export function Sparkline({ values, color = 'var(--chart-1)', width = 120, height = 34 }) {
+  const vs = values.map((v) => (v == null ? null : Number(v)));
+  const nums = vs.filter((v) => v != null);
+  if (nums.length < 2) return <svg width={width} height={height} />;
+  const min = Math.min(...nums);
+  const max = Math.max(...nums);
+  const x = (i) => (i / (vs.length - 1)) * (width - 4) + 2;
+  const y = (v) => height - 3 - ((v - min) / (max - min || 1)) * (height - 6);
+  const pts = vs.map((v, i) => (v == null ? null : [x(i), y(v)])).filter(Boolean);
+  const d = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const last = pts[pts.length - 1];
+  return (
+    <svg width={width} height={height} aria-hidden="true">
+      <path d={`${d} L${last[0]},${height} L${pts[0][0]},${height} Z`} fill={color} opacity="0.08" />
+      <path d={d} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={last[0]} cy={last[1]} r="2.8" fill={color} />
+    </svg>
+  );
+}
+
+/** Grafik garis multi-seri dengan sumbu & tooltip. */
+export function LineChart({ labels, series, height = 220, format = (v) => v }) {
+  const [tip, setTip] = useState(null);
+  const W = 640;
+  const pad = { l: 46, r: 12, t: 12, b: 26 };
+  const all = series.flatMap((s) => s.values.filter((v) => v != null));
+  const max = Math.max(1, ...all);
+  const x = (i) => pad.l + (i / Math.max(1, labels.length - 1)) * (W - pad.l - pad.r);
+  const y = (v) => height - pad.b - (v / max) * (height - pad.t - pad.b);
+  const ticks = [0, max / 2, max];
+  return (
+    <div style={{ position: 'relative' }}>
+      <svg viewBox={`0 0 ${W} ${height}`} width="100%" role="img" aria-label="grafik tren">
+        {ticks.map((t) => (
+          <g key={t}>
+            <line x1={pad.l} x2={W - pad.r} y1={y(t)} y2={y(t)} stroke="var(--border)" strokeDasharray={t ? '3 3' : ''} />
+            <text x={pad.l - 6} y={y(t) + 4} textAnchor="end" fontSize="10" fill="var(--muted)">{format(Math.round(t * 10) / 10, true)}</text>
+          </g>
+        ))}
+        {labels.map((l, i) => <text key={l + i} x={x(i)} y={height - 8} textAnchor="middle" fontSize="10.5" fill="var(--muted)">{l}</text>)}
+        {series.map((s) => {
+          const pts = s.values.map((v, i) => (v == null ? null : [x(i), y(v), v, i])).filter(Boolean);
+          const d = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0]},${p[1]}`).join(' ');
+          return (
+            <g key={s.label}>
+              <path d={d} fill="none" stroke={s.color} strokeWidth="2.4" strokeLinejoin="round" />
+              {pts.map((p) => (
+                <circle key={p[3]} cx={p[0]} cy={p[1]} r="4" fill="var(--surface)" stroke={s.color} strokeWidth="2"
+                  onMouseEnter={(e) => setTip({ x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY, text: `${labels[p[3]]} · ${s.label}: ${format(p[2])}` })} onMouseLeave={() => setTip(null)} />
+              ))}
+            </g>
+          );
+        })}
+      </svg>
+      {tip && <div className="chart-tip" style={{ left: tip.x, top: tip.y }}>{tip.text}</div>}
+      <div className="chart-legend">{series.map((s) => <span key={s.label}><i style={{ background: s.color }} />{s.label}</span>)}</div>
+    </div>
+  );
+}
+
+/** Heatmap risiko 5×5 (likelihood × impact). */
+export function RiskHeatmap({ grid, title }) {
+  const tone = (l, i) => {
+    const s = l * i;
+    return s >= 20 ? 'var(--red)' : s >= 10 ? 'var(--orange)' : s >= 5 ? '#d29a35' : 'var(--green)';
+  };
+  return (
+    <div className="heatmap">
+      {title && <div className="small muted" style={{ marginBottom: 6 }}>{title}</div>}
+      <div className="heat-grid">
+        <span className="heat-axis-y">Likelihood →</span>
+        {grid.map((row, ri) => row.map((n, ci) => {
+          const l = 5 - ri;
+          const i = ci + 1;
+          return (
+            <span key={`${ri}-${ci}`} className="heat-cell" style={{ background: tone(l, i), opacity: n ? 1 : 0.22 }} title={`Likelihood ${l} × Impact ${i}: ${n} risiko`}>
+              {n || ''}
+            </span>
+          );
+        }))}
+      </div>
+      <div className="small muted center" style={{ marginTop: 4 }}>Impact →</div>
+    </div>
+  );
+}
+
+/** Bar anggaran: pagu vs komitmen vs realisasi. */
+export function BudgetBars({ rows, format }) {
+  const max = Math.max(1, ...rows.map((r) => r.amount));
+  return (
+    <div className="stack" style={{ gap: 12 }}>
+      {rows.map((r) => (
+        <div key={r._id || r.name}>
+          <div className="row between small"><span className="nowrap" style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '60%' }}>{r.name}</span><span className="muted">{format(r.actual)} / {format(r.amount)}</span></div>
+          <div className="budget-track" style={{ width: `${(r.amount / max) * 100}%` }}>
+            <span className="budget-committed" style={{ width: `${Math.min(100, (r.committed / (r.amount || 1)) * 100)}%` }} />
+            <span className="budget-actual" style={{ width: `${Math.min(100, (r.actual / (r.amount || 1)) * 100)}%` }} />
+          </div>
+        </div>
+      ))}
+      <div className="chart-legend"><span><i style={{ background: 'var(--gray-bg)', border: '1px solid var(--border-strong)' }} />Pagu</span><span><i style={{ background: 'var(--chart-2)' }} />Terkomitmen (PO)</span><span><i style={{ background: 'var(--chart-1)' }} />Realisasi</span></div>
+    </div>
+  );
+}

@@ -4,7 +4,8 @@ import { Badge, fmtDate } from '../components/format.jsx';
 import Icon from '../components/Icon.jsx';
 import { Kpi } from './Dashboard.jsx';
 import { Modal, PageHeader, useToast } from '../components/ui.jsx';
-import { PLANS } from '../../../shared/plans.mjs';
+import { PLANS, DOMAINS, ALL_MODULES } from '../../../shared/plans.mjs';
+import { MODULES } from '../config/modules.js';
 import { industries } from '../../../shared/frameworks.mjs';
 
 const EMPTY = { name: '', slug: '', industry: 'general', plan: 'professional', adminName: '', adminEmail: '', adminPassword: '' };
@@ -14,6 +15,7 @@ export default function Platform() {
   const toast = useToast();
   const [items, setItems] = useState(null);
   const [form, setForm] = useState(null);
+  const [grant, setGrant] = useState(null);
   const [error, setError] = useState('');
   const load = () => api('/platform/tenants').then((r) => setItems(r.items));
   useEffect(() => { load(); }, []);
@@ -52,7 +54,7 @@ export default function Platform() {
       </div>
       <div className="card flush table-wrap">
         <table>
-          <thead><tr><th>Organisasi</th><th>Industri</th><th>Paket</th><th>Status</th><th>Pengguna</th><th>Incident</th><th>Dibuat</th></tr></thead>
+          <thead><tr><th>Organisasi</th><th>Industri</th><th>Paket</th><th>Status</th><th>Modul</th><th>Pengguna</th><th>Incident</th><th>Dibuat</th></tr></thead>
           <tbody>
             {(items || []).map((t) => (
               <tr key={t._id}>
@@ -69,7 +71,13 @@ export default function Platform() {
                   </select>
                   {t.status === 'suspended' && <> <Badge tone="red">diblokir</Badge></>}
                 </td>
-                <td>{t.activeUsers}{PLANS[t.plan]?.maxUsers ? <span className="muted"> / {PLANS[t.plan].maxUsers}</span> : ''}</td>
+                <td>
+                  <button className="btn btn-sm" onClick={() => setGrant({ tenant: t, custom: t.customModules, modules: t.grantedModules || [], maxUsers: t.maxUsers ?? '' })}>
+                    <Icon name="layers" size="sm" />{(t.grantedModules || []).length}/{ALL_MODULES.length}
+                  </button>
+                  {t.customModules && <> <span className="badge badge-gold plain">kustom</span></>}
+                </td>
+                <td>{t.activeUsers}{t.userLimit ? <span className="muted"> / {t.userLimit}</span> : <span className="muted"> / ∞</span>}</td>
                 <td>{t.incidents}</td>
                 <td className="small">{fmtDate(t.createdAt)}</td>
               </tr>
@@ -77,6 +85,10 @@ export default function Platform() {
           </tbody>
         </table>
       </div>
+      {grant && <GrantModal grant={grant} setGrant={setGrant} onSave={async () => {
+        await update(grant.tenant, { modules: grant.custom ? grant.modules : null, maxUsers: grant.maxUsers === '' ? null : Number(grant.maxUsers) });
+        setGrant(null);
+      }} />}
       {form && (
         <Modal title="Provisioning tenant baru" onClose={() => setForm(null)}>
           <form onSubmit={create}>
@@ -97,5 +109,54 @@ export default function Platform() {
         </Modal>
       )}
     </div>
+  );
+}
+
+/** Pemberian modul per tenant oleh operator platform: ikuti paket, atau pilih modul secara eksplisit. */
+function GrantModal({ grant, setGrant, onSave }) {
+  const plan = PLANS[grant.tenant.plan];
+  const toggle = (m) => setGrant({ ...grant, custom: true, modules: grant.modules.includes(m) ? grant.modules.filter((x) => x !== m) : [...grant.modules, m] });
+  const toggleDomain = (mods, on) => setGrant({ ...grant, custom: true, modules: on ? [...new Set([...grant.modules, ...mods])] : grant.modules.filter((m) => !mods.includes(m)) });
+  return (
+    <Modal title={`Modul untuk ${grant.tenant.name}`} onClose={() => setGrant(null)} width={860}>
+      <div className="modal-body stack">
+        <div className="row between">
+          <label className="inline">
+            <input type="checkbox" checked={!grant.custom} onChange={(e) => setGrant({ ...grant, custom: !e.target.checked, modules: e.target.checked ? plan.modules : grant.modules })} />
+            <span>Ikuti default paket <b>{plan.name}</b> ({plan.modules.length} modul)</span>
+          </label>
+          <label className="row" style={{ flexWrap: 'nowrap' }}>
+            <span className="small muted nowrap">Kuota pengguna aktif</span>
+            <input type="number" min="1" style={{ width: 110 }} placeholder={plan.maxUsers ? `default ${plan.maxUsers}` : 'tanpa batas'} value={grant.maxUsers} onChange={(e) => setGrant({ ...grant, maxUsers: e.target.value })} />
+          </label>
+        </div>
+        <p className="small muted" style={{ margin: 0 }}>Modul yang tidak di-grant akan terkunci di portal tenant dan ditolak oleh API. Data yang sudah ada tetap tersimpan.</p>
+        <div className="grid-2">
+          {Object.entries(DOMAINS).map(([key, d]) => {
+            const all = d.modules.every((m) => grant.modules.includes(m));
+            return (
+              <div key={key} className="fw-item" style={{ display: 'block' }}>
+                <label className="inline" style={{ marginBottom: 8 }}>
+                  <input type="checkbox" checked={all} onChange={(e) => toggleDomain(d.modules, e.target.checked)} /><span><b>{d.name}</b></span>
+                </label>
+                <div className="stack" style={{ gap: 4, paddingLeft: 24 }}>
+                  {d.modules.map((m) => (
+                    <label key={m} className="inline small">
+                      <input type="checkbox" checked={grant.modules.includes(m)} onChange={() => toggle(m)} />
+                      <span><Icon name={MODULES[m]?.icon} size="sm" /> {MODULES[m]?.plural || m}{plan.modules.includes(m) ? '' : <span className="muted"> · di luar paket</span>}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="form-actions">
+        <span className="small muted grow">{grant.custom ? `${grant.modules.length} modul dipilih (kustom)` : 'Mengikuti paket'}</span>
+        <button className="btn" onClick={() => setGrant(null)}>Batal</button>
+        <button className="btn btn-primary" onClick={onSave}>Simpan</button>
+      </div>
+    </Modal>
   );
 }

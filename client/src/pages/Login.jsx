@@ -7,6 +7,8 @@ import Icon from '../components/Icon.jsx';
 const DEMO_ACCOUNTS = [
   ['admin', 'Admin'], ['servicedesk', 'Service Desk'], ['tech', 'Teknisi'], ['change', 'Change Mgr'], ['cab', 'Anggota CAB'],
   ['risk', 'Risk Officer'], ['pm', 'Project Mgr'], ['auditor', 'Auditor'], ['user', 'End User'],
+  ['executive', 'CIO / Direksi'], ['finance', 'IT Controller'], ['vendor', 'Procurement'], ['accountant', 'Akuntan'],
+  ['treasurer', 'Treasury'], ['dc', 'DC Manager'], ['bcm', 'BCM'], ['ciso', 'CISO'], ['architect', 'Arsitek'],
 ];
 const wsFromUrl = () => new URLSearchParams(window.location.search).get('ws') || new URLSearchParams(window.location.hash.split('?')[1] || '').get('ws');
 

@@ -8,7 +8,8 @@ import { PageHeader, useToast } from '../components/ui.jsx';
 const SHORT = {
   service_desk: 'Service Desk', technician: 'Teknisi', incident_manager: 'Incident Mgr', problem_manager: 'Problem Mgr', change_manager: 'Change Mgr',
   cab_member: 'CAB', asset_manager: 'Asset Mgr', knowledge_manager: 'Knowledge Mgr', risk_officer: 'Risk Officer', security_officer: 'CISO',
-  architect: 'Arsitek', project_manager: 'PM / SM', vendor_manager: 'Vendor Mgr', auditor: 'Auditor', requester: 'End User',
+  architect: 'Arsitek', project_manager: 'PM / SM', vendor_manager: 'Procurement', auditor: 'Auditor', requester: 'End User',
+  finance_manager: 'IT Controller', accountant: 'Akuntan', treasurer: 'Treasury', dc_manager: 'DC Mgr', bcm_manager: 'BCM', executive: 'CIO / Direksi',
 };
 
 /** Matriks peran × modul. Klik sel: — → Lihat (R) → Ubah (W). Admin selalu memiliki akses penuh. */

@@ -1,7 +1,9 @@
 // Registry resource untuk backend demo — cermin dari server/src/resources.js
 // Hak akses berasal dari shared/permissions.mjs (+ override per tenant), sama seperti server.
 import { hasRole } from '../../../shared/roles.mjs';
-import { workflows } from '../../../shared/workflows.mjs';
+import { workflows, fromSpec } from '../../../shared/workflows.mjs';
+import { MODULE_DEFS } from '../../../shared/modules.mjs';
+import { APPROVALS } from '../../../shared/approvals.mjs';
 import { calculatePriority, riskScore } from '../../../shared/priority.mjs';
 
 export const isRequesterOnly = (u) => !u.roles.some((r) => r !== 'requester');
@@ -39,8 +41,7 @@ export const RESOURCES = {
     refs: { ...TICKET_REFS, approver: 'users' },
     defaults: { impact: 3, urgency: 3, channel: 'portal', quantity: 1, requiresApproval: false },
     scope: ownTickets,
-    canTransition: (user, doc, to) =>
-      ownerTransitions(['cancelled', 'closed'])(user, doc, to) || (['approved', 'rejected'].includes(to) && same(doc.approver, user)),
+    canTransition: ownerTransitions(['cancelled', 'closed']),
     beforeCreate: (doc, user, db) => {
       if (isRequesterOnly(user)) doc.requester = user._id;
       doc.requester = doc.requester || user._id;
@@ -72,18 +73,21 @@ export const RESOURCES = {
   'configuration-items': {
     prefix: 'CI', label: 'Configuration Item',
     search: ['number', 'name', 'hostname', 'ipAddress'],
-    refs: { owner: 'users', services: 'services', dependsOn: 'configuration-items', asset: 'assets', vendor: 'vendors' },
-    defaults: { ciType: 'server', status: 'active', environment: 'production', hostingCountry: 'Indonesia', dataClassification: 'internal', processesPersonalData: false },
+    refs: { owner: 'users', services: 'services', dependsOn: 'configuration-items', asset: 'assets', vendor: 'vendors', rack: 'racks' },
+    workflow: workflows.configurationItem, initial: 'planned',
+    defaults: { ciType: 'server', environment: 'production', hostingCountry: 'Indonesia', dataClassification: 'internal', processesPersonalData: false },
   },
   assets: {
     prefix: 'AST', label: 'Asset',
     search: ['number', 'name', 'assetTag', 'serialNumber', 'model'], refs: { assignedTo: 'users', vendor: 'vendors' },
-    defaults: { category: 'hardware', status: 'in_stock', currency: 'IDR' },
+    workflow: workflows.asset, initial: 'requested',
+    defaults: { category: 'hardware', currency: 'IDR' },
   },
   vendors: {
     prefix: 'VND', label: 'Vendor',
     search: ['number', 'name', 'contractNumber'], refs: {},
-    defaults: { category: 'other', status: 'active', criticality: 'medium', dataLocation: 'Indonesia', rightToAudit: false },
+    workflow: workflows.vendor, initial: 'prospect',
+    defaults: { category: 'other', criticality: 'medium', dataLocation: 'Indonesia', rightToAudit: false },
   },
   knowledge: {
     prefix: 'KB', label: 'Knowledge Article',
@@ -114,13 +118,15 @@ export const RESOURCES = {
   },
   continuity: {
     prefix: 'BCP', label: 'Continuity Plan',
-    search: ['number', 'name', 'drSite'], refs: { owner: 'users', services: 'services' }, defaults: { planType: 'drp', status: 'draft' },
+    search: ['number', 'name', 'drSite'], refs: { owner: 'users', services: 'services' }, defaults: { planType: 'drp' },
+    workflow: workflows.continuity, initial: 'draft',
   },
   architecture: {
     prefix: 'ARC', label: 'Architecture Component',
     search: ['number', 'name', 'description'],
     refs: { owner: 'users', relatedServices: 'services', relatedCIs: 'configuration-items', dependsOn: 'architecture' },
-    defaults: { domain: 'application', buildingBlockType: 'sbb', admPhase: 'preliminary', state: 'baseline', lifecycle: 'tolerate', status: 'draft' },
+    workflow: workflows.architecture, initial: 'draft',
+    defaults: { domain: 'application', buildingBlockType: 'sbb', admPhase: 'preliminary', state: 'baseline', lifecycle: 'tolerate' },
   },
   projects: {
     prefix: 'PRJ', label: 'Project', workflow: workflows.project, initial: 'initiating',
@@ -142,5 +148,32 @@ export const RESOURCES = {
     defaultSort: 'appliesTo priority', defaults: { active: true }, noActivity: true,
   },
 };
+
+// Modul deklaratif (shared/modules.mjs) — refs, default, workflow & hitungan dari satu definisi
+const COLL = (f) => (f.type === 'user' || (f.type === 'readonly' && f.store === 'user') ? 'users' : f.resource);
+for (const [key, def] of Object.entries(MODULE_DEFS)) {
+  const titleKey = def.fields.find((f) => f.key === 'name') ? 'name' : 'title';
+  RESOURCES[key] = {
+    prefix: def.prefix, label: def.label, search: def.search, defaultSort: def.defaultSort,
+    workflow: def.workflow ? fromSpec(def.workflow) : undefined,
+    initial: def.initial,
+    refs: Object.fromEntries(def.fields.filter((f) => ['ref', 'refs', 'user'].includes(f.type) || (f.type === 'readonly' && f.store === 'user')).map((f) => [f.key, COLL(f)])),
+    defaults: Object.fromEntries(def.fields.filter((f) => f.default !== undefined).map((f) => [f.key, f.default])),
+    required: Object.fromEntries(def.fields.filter((f) => f.required && f.key !== titleKey && f.type !== 'readonly').map((f) => [f.key, `${f.label} wajib diisi`])),
+    titleKey: def.fields.find((f) => f.key === titleKey) ? titleKey : null,
+    readonlyKeys: def.fields.filter((f) => f.type === 'readonly').map((f) => f.key),
+    scope: def.ownScope ? (u) => (isRequesterOnly(u) ? (d) => same(d.createdBy, u) : null) : undefined,
+    canTransition: def.workflow
+      ? (user, doc, to) => (def.workflow.canOwner?.includes(to) && ['requester', 'createdBy', 'owner'].some((f) => same(doc[f], user))) || (!!def.workflow.roles?.[to] && hasRole(user, def.workflow.roles[to]))
+      : undefined,
+    transitionFieldsFor: (to) => def.transitionFields?.[to] || def.workflow?.required?.[to]?.map(([f]) => f) || [],
+    beforeSave: def.compute ? (doc) => def.compute(doc) : undefined,
+  };
+}
+
+// Kebijakan persetujuan dilekatkan ke workflow
+for (const [key, policy] of Object.entries(APPROVALS)) {
+  if (RESOURCES[key]?.workflow) RESOURCES[key] = { ...RESOURCES[key], approval: policy, workflow: { ...RESOURCES[key].workflow, approval: policy } };
+}
 
 export { hasRole };

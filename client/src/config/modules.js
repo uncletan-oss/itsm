@@ -1,3 +1,5 @@
+import { MODULE_DEFS } from '../../../shared/modules.mjs';
+
 /**
  * Definisi modul untuk UI generik (list / form / detail).
  * Tipe field: text | textarea | number | date | datetime | select | bool | ref | refs | user | tags | readonly
@@ -169,7 +171,7 @@ export const MODULES = {
     fields: [
       { key: 'name', label: 'Nama CI', type: 'text', required: true },
       { key: 'ciType', label: 'Tipe CI', type: 'select', options: o('server:Server|virtual_machine:Virtual Machine|database:Database|application:Aplikasi|network_device:Perangkat Jaringan|storage:Storage|cloud_service:Layanan Cloud|container:Container|endpoint:Endpoint|other:Lainnya') },
-      { key: 'status', label: 'Status', type: 'select', options: o('planned:Direncanakan|active:Aktif|maintenance:Maintenance|retired:Retired') },
+
       { key: 'environment', label: 'Environment', type: 'select', options: o('production:Production|dr:DR|staging:Staging|development:Development|test:Test') },
       { key: 'hostname', label: 'Hostname', type: 'text' },
       { key: 'ipAddress', label: 'IP Address', type: 'text' },
@@ -185,7 +187,10 @@ export const MODULES = {
       { key: 'dependsOn', label: 'Bergantung pada CI', type: 'refs', resource: 'configuration-items', labelField: 'name' },
       { key: 'asset', label: 'Aset', type: 'ref', resource: 'assets', labelField: 'name' },
       { key: 'vendor', label: 'Vendor', type: 'ref', resource: 'vendors', labelField: 'name' },
+      { key: 'rack', label: 'Rak (DCIM)', type: 'ref', resource: 'racks', labelField: 'name' },
+      { key: 'rackPosition', label: 'Posisi di rak (U)', type: 'text' },
     ],
+    transitionFields: { active: ['owner', 'environment'] },
   },
   assets: {
     label: 'Aset', plural: 'IT Asset (ITAM)', group: 'Aset & Konfigurasi', icon: 'box', staffOnly: true, titleField: 'name',
@@ -195,7 +200,7 @@ export const MODULES = {
       { key: 'name', label: 'Nama Aset', type: 'text', required: true },
       { key: 'assetTag', label: 'Asset Tag', type: 'text' },
       { key: 'category', label: 'Kategori', type: 'select', options: o('hardware:Hardware|software:Software|license:Lisensi|cloud:Cloud|network:Jaringan|mobile:Mobile|other:Lainnya') },
-      { key: 'status', label: 'Status Siklus Hidup', type: 'select', options: o('requested:Diminta|ordered:Dipesan|in_stock:Di Gudang|deployed:Terpasang|in_repair:Perbaikan|retired:Retired|disposed:Dimusnahkan') },
+
       { key: 'manufacturer', label: 'Pabrikan', type: 'text' },
       { key: 'model', label: 'Model', type: 'text' },
       { key: 'serialNumber', label: 'Serial Number', type: 'text' },
@@ -217,13 +222,13 @@ export const MODULES = {
     ],
   },
   vendors: {
-    label: 'Vendor', plural: 'Vendor / Penyedia Jasa TI', group: 'Tata Kelola & Risiko', icon: 'briefcase', staffOnly: true, titleField: 'name',
+    label: 'Vendor', plural: 'Vendor / Penyedia Jasa TI', group: 'Vendor & Keuangan TI', icon: 'briefcase', staffOnly: true, titleField: 'name',
     description: 'Manajemen penyedia jasa TI — due diligence, kontrak, hak audit, lokasi data & exit strategy (POJK 11/2022, PADK 1/2026).',
     columns: ['number', 'name', 'category', 'criticality', 'status', 'contractEnd', 'dataLocation', 'riskRating'],
     fields: [
       { key: 'name', label: 'Nama Vendor', type: 'text', required: true },
       { key: 'category', label: 'Kategori', type: 'select', options: o('cloud:Cloud|data_center:Data Center|software:Software|hardware:Hardware|network:Jaringan|managed_service:Managed Service|consulting:Konsultan|other:Lainnya') },
-      { key: 'status', label: 'Status', type: 'select', options: o('prospect:Prospek|onboarding:Onboarding|active:Aktif|under_review:Dalam Review|terminated:Diputus') },
+
       { key: 'criticality', label: 'Kritikalitas', type: 'select', options: CRIT },
       { key: 'contactName', label: 'Kontak', type: 'text' },
       { key: 'contactEmail', label: 'Email Kontak', type: 'text' },
@@ -246,7 +251,7 @@ export const MODULES = {
     ],
   },
   risks: {
-    label: 'Risiko', plural: 'Risk Register', group: 'Tata Kelola & Risiko', icon: 'shield', staffOnly: true, titleField: 'title',
+    label: 'Risiko', plural: 'Risk Register', group: 'GRC & Assurance', icon: 'shield', staffOnly: true, titleField: 'title',
     description: 'Register risiko TI 5x5 (ISO 31000, NIST SP 800-30) dipetakan ke fungsi NIST CSF 2.0.',
     columns: ['number', 'title', 'category', 'inherentLevel', 'residualLevel', 'status', 'owner', 'dueDate'],
     fields: [
@@ -262,6 +267,7 @@ export const MODULES = {
       { key: 'existingControls', label: 'Kontrol Eksisting', type: 'textarea', full: true },
       { key: 'treatment', label: 'Strategi Penanganan', type: 'select', options: o(':-|mitigate:Mitigasi|transfer:Transfer|avoid:Hindari|accept:Terima') },
       { key: 'treatmentPlan', label: 'Rencana Penanganan', type: 'textarea', full: true },
+      { key: 'acceptanceRationale', label: 'Alasan Penerimaan Risiko (bila diterima)', type: 'textarea', full: true },
       { key: 'residualLikelihood', label: 'Likelihood (residual)', type: 'select', options: [['', '-'], ...SCALE5], number: true },
       { key: 'residualImpact', label: 'Impact (residual)', type: 'select', options: [['', '-'], ...SCALE5], number: true },
       { key: 'residualScore', label: 'Skor Residual', type: 'readonly' },
@@ -272,10 +278,10 @@ export const MODULES = {
       { key: 'relatedAssets', label: 'CI Terkait', type: 'refs', resource: 'configuration-items', labelField: 'name' },
       { key: 'relatedControls', label: 'Kontrol Terkait', type: 'refs', resource: 'controls', labelField: 'title' },
     ],
-    transitionFields: { assessed: ['owner', 'likelihood', 'impact'], treating: ['treatment', 'treatmentPlan'] },
+    transitionFields: { assessed: ['owner', 'likelihood', 'impact'], treating: ['treatment', 'treatmentPlan'], pending_approval: ['treatment', 'acceptanceRationale', 'reviewDate'] },
   },
   controls: {
-    label: 'Kontrol', plural: 'Kontrol Kepatuhan', group: 'Tata Kelola & Risiko', icon: 'checkSquare', staffOnly: true, titleField: 'title',
+    label: 'Kontrol', plural: 'Kontrol Kepatuhan', group: 'GRC & Assurance', icon: 'checkSquare', staffOnly: true, titleField: 'title',
     description: 'Self-assessment kontrol per framework/regulasi yang aktif untuk industri Anda.',
     columns: ['frameworkId', 'code', 'title', 'nistFunction', 'status', 'owner', 'nextReview'],
     fields: [
@@ -297,13 +303,13 @@ export const MODULES = {
     ],
   },
   continuity: {
-    label: 'Rencana', plural: 'BCP / DRP', group: 'Tata Kelola & Risiko', icon: 'lifebuoy', staffOnly: true, titleField: 'name',
+    label: 'Rencana', plural: 'BCP / DRP', group: 'Ketahanan (BCM & DR)', icon: 'lifebuoy', staffOnly: true, titleField: 'name',
     description: 'Business Continuity & Disaster Recovery Plan — RTO/RPO dan pengujian berkala.',
     columns: ['number', 'name', 'planType', 'status', 'rtoHours', 'rpoHours', 'lastTestDate', 'nextTestDate'],
     fields: [
       { key: 'name', label: 'Nama Rencana', type: 'text', required: true },
       { key: 'planType', label: 'Tipe', type: 'select', options: o('bcp:BCP|drp:DRP|crisis:Manajemen Krisis|incident_response:Incident Response Plan') },
-      { key: 'status', label: 'Status', type: 'select', options: o('draft:Draft|approved:Disetujui|tested:Teruji|needs_update:Perlu Update|retired:Retired') },
+
       { key: 'owner', label: 'Pemilik', type: 'user' },
       { key: 'services', label: 'Layanan Tercakup', type: 'refs', resource: 'services', labelField: 'name' },
       { key: 'rtoHours', label: 'RTO (jam)', type: 'number' },
@@ -319,7 +325,7 @@ export const MODULES = {
     ],
   },
   architecture: {
-    label: 'Komponen', plural: 'Arsitektur (TOGAF)', group: 'Arsitektur & Proyek', icon: 'building', staffOnly: true, titleField: 'name',
+    label: 'Komponen', plural: 'Arsitektur (TOGAF)', group: 'Perencanaan & Arsitektur', icon: 'building', staffOnly: true, titleField: 'name',
     description: 'Architecture repository TOGAF — building block per domain BDAT, fase ADM & status baseline/target.',
     columns: ['number', 'name', 'domain', 'buildingBlockType', 'admPhase', 'state', 'lifecycle', 'status'],
     fields: [
@@ -329,7 +335,7 @@ export const MODULES = {
       { key: 'admPhase', label: 'Fase ADM', type: 'select', options: o('preliminary:Preliminary|A:A - Architecture Vision|B:B - Business|C:C - Information Systems|D:D - Technology|E:E - Opportunities & Solutions|F:F - Migration Planning|G:G - Implementation Governance|H:H - Change Management|requirements:Requirements Mgmt') },
       { key: 'state', label: 'State', type: 'select', options: o('baseline:Baseline|transition:Transition|target:Target') },
       { key: 'lifecycle', label: 'Portfolio (TIME)', type: 'select', options: o('plan:Plan|invest:Invest|tolerate:Tolerate|migrate:Migrate|eliminate:Eliminate') },
-      { key: 'status', label: 'Status', type: 'select', options: o('draft:Draft|review:Review|approved:Disetujui|deprecated:Deprecated') },
+
       { key: 'owner', label: 'Pemilik', type: 'user' },
       { key: 'relatedServices', label: 'Layanan', type: 'refs', resource: 'services', labelField: 'name' },
       { key: 'relatedCIs', label: 'CI', type: 'refs', resource: 'configuration-items', labelField: 'name' },
@@ -340,7 +346,7 @@ export const MODULES = {
     ],
   },
   projects: {
-    label: 'Proyek', plural: 'Proyek', group: 'Arsitektur & Proyek', icon: 'kanban', staffOnly: true, titleField: 'name',
+    label: 'Proyek', plural: 'Proyek', group: 'Perencanaan & Arsitektur', icon: 'kanban', staffOnly: true, titleField: 'name',
     description: 'Manajemen proyek PMBOK (predictive/agile/hybrid) — siklus inisiasi hingga penutupan.',
     columns: ['number', 'name', 'approach', 'status', 'health', 'percentComplete', 'manager', 'endDate'],
     fields: [
@@ -369,7 +375,7 @@ export const MODULES = {
     transitionFields: { planning: ['manager', 'objectives'], executing: ['scope', 'startDate', 'endDate'], closed: ['lessonsLearned'] },
   },
   sprints: {
-    label: 'Sprint', plural: 'Sprint', group: 'Arsitektur & Proyek', icon: 'zap', staffOnly: true, titleField: 'name',
+    label: 'Sprint', plural: 'Sprint', group: 'Perencanaan & Arsitektur', icon: 'zap', staffOnly: true, titleField: 'name',
     description: 'Scrum Sprint — Sprint Goal, Review & Retrospective.',
     columns: ['number', 'name', 'project', 'status', 'startDate', 'endDate', 'capacityPoints'],
     fields: [
@@ -385,7 +391,7 @@ export const MODULES = {
     transitionFields: { active: ['goal', 'startDate', 'endDate'], completed: ['reviewNotes', 'retrospectiveNotes'] },
   },
   backlog: {
-    label: 'Backlog Item', plural: 'Product Backlog', group: 'Arsitektur & Proyek', icon: 'list', staffOnly: true, titleField: 'title',
+    label: 'Backlog Item', plural: 'Product Backlog', group: 'Perencanaan & Arsitektur', icon: 'list', staffOnly: true, titleField: 'title',
     description: 'Product/Sprint Backlog dengan story points & prioritas MoSCoW.',
     columns: ['number', 'title', 'itemType', 'project', 'sprint', 'status', 'priority', 'storyPoints', 'assignee'],
     board: true,
@@ -405,7 +411,7 @@ export const MODULES = {
   },
 };
 
-export const NAV_GROUPS = ['Service Management', 'Aset & Konfigurasi', 'Tata Kelola & Risiko', 'Arsitektur & Proyek'];
+export const NAV_GROUPS = ['Service Management', 'Aset & Konfigurasi', 'Data Center (DCIM)', 'Vendor & Keuangan TI', 'GRC & Assurance', 'Ketahanan (BCM & DR)', 'Perencanaan & Arsitektur'];
 
 /** Pengelompokan field di formulir (field yang tidak tercantum masuk ke bagian "Detail lainnya"). */
 export const FORM_SECTIONS = {
@@ -428,3 +434,27 @@ export const STATUS_FLOW = {
   projects: ['initiating', 'planning', 'executing', 'monitoring', 'closing', 'closed'],
   sprints: ['planned', 'active', 'completed'],
 };
+
+// ---- Workflow end-to-end modul lama: field yang diminta saat transisi ----
+Object.assign(MODULES.vendors, { transitionFields: { pending_approval: ['dueDiligenceDate', 'dueDiligenceResult', 'riskRating', 'exitStrategy', 'offshoreApproval'], terminated: ['exitStrategy'] } });
+Object.assign(MODULES.assets, { transitionFields: { deployed: ['assignedTo', 'location'], pending_approval: ['disposalMethod', 'disposalCertificate'] } });
+Object.assign(MODULES.continuity, { transitionFields: { review: ['owner', 'rtoHours', 'rpoHours', 'description'] } });
+Object.assign(MODULES.architecture, { transitionFields: { review: ['owner', 'description'] } });
+Object.assign(STATUS_FLOW, {
+  vendors: ['prospect', 'due_diligence', 'pending_approval', 'active', 'under_review', 'terminated'],
+  assets: ['requested', 'ordered', 'in_stock', 'deployed', 'retired', 'pending_approval', 'disposed'],
+  'configuration-items': ['planned', 'in_build', 'active', 'maintenance', 'retired'],
+  continuity: ['draft', 'review', 'pending_approval', 'approved', 'tested'],
+  architecture: ['draft', 'review', 'pending_approval', 'approved', 'deprecated'],
+  risks: ['identified', 'assessed', 'treating', 'monitoring', 'closed'],
+});
+
+// ---- Modul deklaratif dari shared/modules.mjs (satu definisi untuk server, demo & UI) ----
+for (const [key, def] of Object.entries(MODULE_DEFS)) {
+  MODULES[key] = {
+    label: def.label, plural: def.plural, group: def.group, icon: def.icon, titleField: def.titleField, description: def.description,
+    columns: def.columns, fields: def.fields, transitionFields: def.transitionFields, board: def.board,
+  };
+  if (def.statusFlow) STATUS_FLOW[key] = def.statusFlow;
+  if (def.sections) FORM_SECTIONS[key] = def.sections;
+}

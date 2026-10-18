@@ -7,7 +7,11 @@ import { STATUS_LABELS } from '../config/labels.js';
 import { Badge, FormatValue, fmtDateTime } from './format.jsx';
 import ResourceForm, { FormFields, sectionsFor, toPayload } from './ResourceForm.jsx';
 import Icon from './Icon.jsx';
-import { Empty, Modal, Tabs, initials, useToast } from './ui.jsx';
+import { Empty, Modal, Tabs, initials, usePopover, useToast } from './ui.jsx';
+import { APPROVALS, approvalError, approvalProgress } from '../../../shared/approvals.mjs';
+import { SPAWN } from '../../../shared/effects.mjs';
+import { MODULE_DEFS } from '../../../shared/modules.mjs';
+import { ROLES } from '../../../shared/roles.mjs';
 
 const NEGATIVE = ['cancelled', 'rejected'];
 const transitionLabel = (from, to) => {
@@ -59,13 +63,19 @@ export default function ResourceDetail() {
   if (!doc) return <div className="card"><div className="skeleton" style={{ width: '40%', height: 22 }} /><br /><div className="skeleton" /><br /><div className="skeleton" style={{ width: '70%' }} /></div>;
 
   const canWrite = can(resource, 'write');
-  const mine = [doc.requester?._id, doc.createdBy].includes(user._id);
+  const idOf = (v) => (v && typeof v === 'object' ? v._id : v);
+  const mine = [doc.requester, doc.createdBy, doc.owner].map(idOf).includes(user._id);
+  const spec = MODULE_DEFS[resource]?.workflow;
+  const policy = APPROVALS[resource];
   let transitions = doc.allowedTransitions || [];
-  if (!canWrite) transitions = mine ? transitions.filter((t) => ['cancelled', 'closed', 'in_progress'].includes(t)) : [];
-  if (resource === 'requests' && String(doc.approver?._id) === String(user._id)) {
-    transitions = [...new Set([...transitions, ...(doc.allowedTransitions || []).filter((t) => ['approved', 'rejected'].includes(t))])];
+  if (!canWrite) {
+    // Non-penulis: pemohon/pemilik untuk langkah tertentu, atau peran khusus (mis. verifikator, treasury)
+    transitions = transitions.filter((t) =>
+      spec ? (mine && spec.canOwner?.includes(t)) || (spec.roles?.[t] && hasRole(...spec.roles[t])) : mine && ['cancelled', 'closed', 'in_progress'].includes(t));
   }
-  if (resource === 'changes') transitions = transitions.filter((t) => !(doc.status === 'cab_review' && ['approved', 'rejected'].includes(t)));
+  // Keputusan persetujuan diambil di panel persetujuan, bukan tombol transisi
+  if (policy && doc.status === policy.status) transitions = transitions.filter((t) => ![policy.approved, policy.rejected].includes(t));
+  const spawns = (SPAWN[resource] || []).filter((r) => can(r.target, 'create'));
 
   const act = async (fn, msg) => {
     setError('');
@@ -113,6 +123,7 @@ export default function ResourceDetail() {
               {!NEGATIVE.includes(t) && <Icon name="arrowRight" size="sm" />}{transitionLabel(doc.status, t)}
             </button>
           ))}
+          {spawns.length > 0 && <SpawnMenu resource={resource} id={doc._id} spawns={spawns} />}
           {canWrite && !editing && <button className="btn btn-primary" onClick={() => { setEditing(true); setTab('detail'); }}><Icon name="edit" size="sm" />Edit</button>}
           {canRemove && <button className="btn btn-danger btn-icon" onClick={remove} title="Hapus" aria-label="Hapus"><Icon name="trash" size="sm" /></button>}
         </div>
@@ -128,7 +139,7 @@ export default function ResourceDetail() {
 
       <div className="detail-layout">
         <div>
-          {resource === 'changes' && <CabPanel doc={doc} canApprove={hasRole('cab_member', 'change_manager')} act={act} />}
+          {policy && <ApprovalPanel resource={resource} policy={policy} doc={doc} user={user} act={act} />}
           <Tabs value={tab} onChange={setTab} tabs={[['detail', 'Detail'], !mod.noActivity && ['activity', 'Aktivitas', activities.length], ['related', 'Terkait', relatedCount]].filter(Boolean)} />
           {tab === 'detail' && (editing ? (
             <ResourceForm existing={doc} onSaved={() => { setEditing(false); load(); }} onCancel={() => setEditing(false)} />
@@ -217,34 +228,75 @@ function TransitionModal({ mod, doc, to, onSubmit, onClose, isStaff }) {
   );
 }
 
-function CabPanel({ doc, canApprove, act }) {
-  const [comment, setComment] = useState('');
-  if (doc.status !== 'cab_review' && !doc.approvals?.length) return null;
-  const approved = (doc.approvals || []).filter((a) => a.decision === 'approved').length;
-  const decide = (decision) => act(() => api(`/changes/${doc._id}/approve`, { method: 'POST', body: { decision, comment } }), decision === 'approved' ? 'Persetujuan tercatat' : 'Change ditolak');
+function SpawnMenu({ resource, id, spawns }) {
+  const { open, setOpen, ref } = usePopover();
+  const navigate = useNavigate();
   return (
-    <div className={`card ${doc.status === 'cab_review' ? 'highlight' : ''}`}>
+    <div style={{ position: 'relative' }} ref={ref}>
+      <button className="btn" onClick={() => setOpen(!open)}><Icon name="link" size="sm" />Buat terkait<Icon name="chevronDown" size="sm" /></button>
+      {open && (
+        <div className="popover menu" style={{ minWidth: 260 }}>
+          {spawns.map((r) => (
+            <button key={r.target} className="menu-item" onClick={() => navigate(`/m/${r.target}/new?_spawn=${resource}:${id}`)}>
+              <Icon name={MODULES[r.target]?.icon} size="sm" />{r.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Panel persetujuan multi-tahap generik (CAB, PO, tagihan, pembayaran, vendor, BIA, dst.). */
+function ApprovalPanel({ resource, policy, doc, user, act }) {
+  const [comment, setComment] = useState('');
+  const progress = approvalProgress(policy, doc);
+  const waiting = doc.status === policy.status;
+  const reason = waiting ? approvalError(policy, doc, user) : null;
+  const history = (doc.approvals || []).slice().reverse();
+  const decide = (decision) => act(() => api(`/${resource}/${doc._id}/approve`, { method: 'POST', body: { decision, comment } }), decision === 'approved' ? 'Persetujuan tercatat' : 'Ditolak');
+  return (
+    <div className={`card ${waiting ? 'highlight' : ''}`}>
       <div className="row between">
-        <h3 style={{ margin: 0 }}><Icon name="users" size="sm" /> Change Advisory Board</h3>
-        <Badge tone={approved >= (doc.requiredApprovals || 1) ? 'green' : 'amber'}>{approved}/{doc.requiredApprovals || 1} persetujuan</Badge>
+        <h3 style={{ margin: 0 }}><Icon name="checkSquare" size="sm" /> {policy.label}</h3>
+        {waiting ? <Badge tone="amber">Menunggu: {progress.current?.name}</Badge> : doc.approvals?.length ? <Badge tone="gray">Riwayat persetujuan</Badge> : <Badge tone="gray">Belum diajukan</Badge>}
       </div>
-      <ul className="plain">
-        {(doc.approvals || []).map((a) => (
-          <li key={a._id} className="row">
-            <span className="avatar" style={{ width: 26, height: 26, fontSize: 11 }}>{initials(a.approverName)}</span>
-            <b>{a.approverName}</b><Badge tone={a.decision === 'approved' ? 'green' : 'red'}>{a.decision === 'approved' ? 'Setuju' : 'Tolak'}</Badge>
-            <span className="small muted">{fmtDateTime(a.at)}</span>{a.comment && <span className="small">“{a.comment}”</span>}
+      <ol className="approval-steps">
+        {progress.steps.map((st) => (
+          <li key={st.name} className={st.done ? 'done' : progress.current?.name === st.name && waiting ? 'current' : ''}>
+            <span className="bullet">{st.done ? <Icon name="check" size="sm" /> : ''}</span>
+            <span className="grow">
+              <b>{st.name}</b>
+              <span className="small muted"> · {st.field ? 'penyetuju yang ditunjuk' : st.roles.map((r) => ROLES[r] || r).join(' / ')}{st.required > 1 ? ` · ${st.required} persetujuan` : ''}</span>
+              {st.approvers.length > 0 && <div className="small">Disetujui: {st.approvers.join(', ')}</div>}
+            </span>
+            <span className="small muted">{st.approved}/{st.required}</span>
           </li>
         ))}
-      </ul>
-      {doc.status === 'cab_review' && canApprove && (
+      </ol>
+      {waiting && !reason && (
         <div className="row">
-          <input className="grow" style={{ width: 'auto' }} placeholder="Komentar CAB (opsional)" value={comment} onChange={(e) => setComment(e.target.value)} />
+          <input className="grow" style={{ width: 'auto' }} placeholder="Komentar (opsional)" value={comment} onChange={(e) => setComment(e.target.value)} />
           <button className="btn btn-primary" onClick={() => decide('approved')}><Icon name="check" size="sm" />Setujui</button>
           <button className="btn btn-danger" onClick={() => decide('rejected')}>Tolak</button>
         </div>
       )}
-      <p className="muted small" style={{ marginBottom: 0 }}>Segregation of duties: pemohon & implementer tidak dapat memberi persetujuan. Change risiko tinggi memerlukan 2 persetujuan.</p>
+      {waiting && reason && <p className="small muted" style={{ margin: 0 }}><Icon name="lock" size="sm" /> {reason}</p>}
+      {history.length > 0 && (
+        <details style={{ marginTop: 10 }}>
+          <summary className="small muted">Riwayat keputusan ({history.length})</summary>
+          <ul className="plain">
+            {history.map((a, i) => (
+              <li key={a._id || i} className="row small">
+                <span className="avatar" style={{ width: 24, height: 24, fontSize: 10 }}>{initials(a.approverName)}</span>
+                <b>{a.approverName}</b><Badge tone={a.decision === 'approved' ? 'green' : 'red'}>{a.decision === 'approved' ? 'Setuju' : 'Tolak'}</Badge>
+                <span className="muted">{a.step} · putaran {a.round || 1} · {fmtDateTime(a.at)}</span>{a.comment && <span>“{a.comment}”</span>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      <p className="muted small" style={{ marginBottom: 0 }}>Segregation of duties: pembuat/pemohon tidak dapat menyetujui; satu orang satu keputusan per putaran.</p>
     </div>
   );
 }

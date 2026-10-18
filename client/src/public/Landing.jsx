@@ -6,13 +6,17 @@ import Icon from '../components/Icon.jsx';
 import { PLANS } from '../../../shared/plans.mjs';
 import { industries, frameworks } from '../../../shared/frameworks.mjs';
 
-const FEATURES = [
+const FEATURES = [ // modul utama platform
   ['alert', 'Incident & Problem', 'Prioritas impact × urgency, SLA dengan jeda otomatis, major incident, RCA, dan known error.', 'ITIL 4'],
   ['change', 'Change Enablement', 'RFC standard/normal/emergency, CAB multi-approver, segregation of duties, dan PIR.', 'ITIL 4 · ISO 27001'],
   ['request', 'Katalog & Portal Layanan', 'Permintaan terstandar dengan persetujuan, pusat bantuan publik, dan status layanan.', 'ITIL 4'],
   ['server', 'CMDB & Aset TI', 'Relasi CI, lokasi DC/DRC & negara penempatan, siklus hidup aset, dan lisensi.', 'ITAM · ISO 19770'],
   ['shield', 'Risiko, Vendor & Kepatuhan', 'Risk register 5×5, penyedia jasa TI, BCP/DRP, dan skor kepatuhan per regulasi.', 'NIST CSF 2.0 · OJK'],
-  ['building', 'Arsitektur & Portofolio', 'Repositori TOGAF, proyek predictive/agile, sprint, dan product backlog.', 'TOGAF · PMBOK · Scrum'],
+  ['building', 'Arsitektur & Perencanaan', 'RPTI/inisiatif strategis, repositori TOGAF, proyek predictive/agile, sprint & backlog.', 'TOGAF · PMBOK · Scrum'],
+  ['wallet', 'Keuangan TI (ITFM)', 'Anggaran, PO dengan kontrol anggaran, tagihan 3-way match, pembayaran maker-checker & jurnal otomatis.', 'ITFM · COSO'],
+  ['flag', 'Assurance & Audit', 'Pengujian kontrol independen, temuan audit/regulator, mitigasi & validasi penutupan.', 'ISO 27001 · IIA'],
+  ['server', 'DCIM', 'Data center & DRC, kapasitas rak (ruang & daya), dan izin akses fisik.', 'ISO 27001 A.7 · TIA-942'],
+  ['lifebuoy', 'BCM & Disaster Recovery', 'BIA (MTPD/RTO/RPO), pengesahan BCP/DRP, dan uji DR dengan temuan otomatis.', 'ISO 22301 · POJK 11/2022'],
 ];
 const TRUST = [
   ['key', 'Akses berbasis peran', '16 peran default dengan least privilege; admin menyesuaikan matriks akses per workspace.'],

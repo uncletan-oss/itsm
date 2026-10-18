@@ -13,6 +13,12 @@ export const STATUS_LABELS = {
   onboarding: 'Onboarding', under_review: 'Dalam Review', terminated: 'Diputus', tested: 'Teruji', needs_update: 'Perlu Update',
   not_assessed: 'Belum Dinilai', not_implemented: 'Belum Diterapkan', partial: 'Sebagian', implemented: 'Diterapkan',
   not_applicable: 'Tidak Berlaku',
+  due_diligence: 'Due Diligence', legal_review: 'Review Legal', renewal_review: 'Review Perpanjangan', expired: 'Berakhir',
+  received: 'Diterima', verified: 'Terverifikasi', disputed: 'Sengketa', paid: 'Lunas', executed: 'Dieksekusi', reconciled: 'Direkonsiliasi',
+  posted: 'Diposting', reversed: 'Dibalik', open: 'Terbuka', action_plan: 'Rencana Tindak Lanjut', in_remediation: 'Remediasi',
+  concluded: 'Disimpulkan', commissioning: 'Commissioning', operational: 'Operasional', decommissioned: 'Dinonaktifkan', full: 'Penuh',
+  checked_in: 'Check-in', checked_out: 'Check-out', proposed: 'Diusulkan', in_execution: 'Dieksekusi', delivered: 'Selesai Dikirim',
+  pending_disposal: 'Menunggu Disposal', in_build: 'Pembangunan',
 };
 
 export const STATUS_TONE = {
@@ -25,6 +31,11 @@ export const STATUS_TONE = {
   implemented: 'green', live: 'green', deployed: 'green', tested: 'green', scheduled: 'teal', monitoring: 'teal',
   closed: 'gray', cancelled: 'gray', retired: 'gray', disposed: 'gray', not_applicable: 'gray',
   rejected: 'red', not_implemented: 'red', terminated: 'red',
+  due_diligence: 'indigo', legal_review: 'amber', renewal_review: 'amber', expired: 'gray', received: 'blue', verified: 'teal',
+  disputed: 'red', paid: 'green', executed: 'teal', reconciled: 'green', posted: 'green', reversed: 'gray', open: 'blue',
+  action_plan: 'indigo', in_remediation: 'amber', concluded: 'green', commissioning: 'indigo', operational: 'green',
+  decommissioned: 'gray', full: 'amber', checked_in: 'indigo', checked_out: 'green', proposed: 'blue', in_execution: 'indigo',
+  delivered: 'green', in_build: 'indigo',
 };
 
 export const PRIORITY_LABELS = { 1: 'P1 - Kritis', 2: 'P2 - Tinggi', 3: 'P3 - Sedang', 4: 'P4 - Rendah' };

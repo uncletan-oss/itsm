@@ -29,7 +29,7 @@ export const DEFAULT_PERMISSIONS = {
     remove: ['asset_manager'],
   },
   assets: { read: ['asset_manager', 'technician', 'service_desk', 'vendor_manager', 'risk_officer', 'security_officer', 'finance_manager', 'dc_manager', 'auditor'], write: ['asset_manager'] },
-  vendors: { read: ['vendor_manager', 'risk_officer', 'security_officer', 'asset_manager', 'finance_manager', 'accountant', 'dc_manager', 'executive', 'auditor'], write: ['vendor_manager', 'risk_officer'] },
+  vendors: { read: ['vendor_manager', 'risk_officer', 'security_officer', 'asset_manager', 'finance_manager', 'accountant', 'dc_manager', 'project_manager', 'executive', 'auditor'], write: ['vendor_manager', 'risk_officer'] },
   risks: { read: ['risk_officer', 'security_officer', 'architect', 'project_manager', 'vendor_manager', 'bcm_manager', 'executive', 'auditor'], write: ['risk_officer', 'security_officer'] },
   controls: { read: ['risk_officer', 'security_officer', 'executive', 'auditor'], write: ['risk_officer', 'security_officer'] },
   continuity: { read: ['bcm_manager', 'risk_officer', 'security_officer', 'asset_manager', 'technician', 'incident_manager', 'dc_manager', 'executive', 'auditor'], write: ['bcm_manager', 'risk_officer'] },

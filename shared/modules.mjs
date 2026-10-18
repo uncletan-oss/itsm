@@ -25,7 +25,7 @@ export const MODULE_DEFS = {
     description: 'Siklus kontrak penyedia jasa TI: review legal, persetujuan berjenjang, aktif, perpanjangan, hingga pengakhiran (POJK 11/2022, PADK 1/2026).',
     columns: ['number', 'title', 'vendor', 'contractType', 'value', 'endDate', 'status'],
     search: ['number', 'title'],
-    permissions: { read: ['vendor_manager', 'risk_officer', 'finance_manager', 'executive', 'auditor', 'security_officer'], write: ['vendor_manager'] },
+    permissions: { read: ['vendor_manager', 'risk_officer', 'finance_manager', 'executive', 'auditor', 'security_officer', 'project_manager', 'asset_manager', 'accountant'], write: ['vendor_manager'] },
     fields: [
       { key: 'title', label: 'Judul kontrak', type: 'text', required: true, full: true },
       { key: 'vendor', label: 'Vendor', type: 'ref', resource: 'vendors', required: true },

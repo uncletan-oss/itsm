@@ -7,7 +7,7 @@ Paket regulasi aktif mengikuti **industri** yang dipilih, jadi satu aplikasi bis
 pemerintahan (SPBE), rumah sakit, ritel, manufaktur, dan industri lain.
 
 **🌐 Demo online (GitHub Pages):**
-- Situs SaaS (landing, harga, pendaftaran): https://uncletan-oss.github.io/itsm/
+- **Landing page** SaaS (fitur, harga, pendaftaran): https://uncletan-oss.github.io/itsm/
 - Pusat bantuan tenant: https://uncletan-oss.github.io/itsm/#/w/bank-nusantara
 - Portal (login): https://uncletan-oss.github.io/itsm/portal/ — pilih workspace contoh lalu klik tombol peran.
 
@@ -30,13 +30,57 @@ Workspace demo (password semua akun `Password123!`):
 - **Paket langganan** (`shared/plans.mjs`) membatasi modul dan jumlah pengguna aktif:
   Starter (ITSM inti, 15 pengguna) · Professional (+ GRC, 100 pengguna) · Enterprise (+ arsitektur & proyek, tanpa batas).
   Modul di luar paket tampil terkunci untuk admin dan ditolak `403` oleh server.
-- **Operator platform** (peran `platform_admin`, tanpa tenant) mengelola tenant, paket, dan status (trial/aktif/ditangguhkan)
-  di konsol tersendiri — tanpa akses ke data operasional tenant. Tenant yang ditangguhkan tidak bisa login.
+- **Operator platform** (peran `platform_admin`, tanpa tenant; login dengan workspace kosong) mengelola tenant di konsol
+  tersendiri — tanpa akses ke data operasional tenant:
+  - **paket & status** (trial/aktif/ditangguhkan; tenant yang ditangguhkan tidak bisa login),
+  - **grant modul per tenant**: tombol *Modul* di daftar tenant → pilih modul per domain (ITSM, GRC & Assurance,
+    BCM & DR, DCIM, Keuangan TI, Arsitektur & Perencanaan) atau ikuti default paket,
+  - **kuota pengguna aktif** per tenant (override batas paket).
 - **Pusat bantuan publik per tenant** di `/w/<workspace>`: status layanan, knowledge base publik, katalog, dan framework.
+
+## Workflow end-to-end per domain
+
+Semua modul memakai state machine + **mesin persetujuan multi-tahap** (`shared/approvals.mjs`) dengan ambang nilai,
+penyetuju yang ditunjuk (mis. pemilik risiko/pemilik proses), maker-checker, dan putaran ulang setelah ditolak.
+Aturan lintas-record (`shared/effects.mjs`) dijalankan identik di server & demo.
+
+| Domain | Alur | Persetujuan & kontrol otomatis |
+|---|---|---|
+| Incident | baru → ditugaskan → dikerjakan ⇄ pending (SLA dijeda) → selesai → ditutup/dibuka kembali | prioritas impact×urgency, SLA, flag regulator; *buat problem / artikel* |
+| Problem | baru → investigasi → known error → selesai → ditutup | RCA wajib; *ajukan change*, *terbitkan known error* |
+| Change | draft → diajukan → assessment → CAB → disetujui → terjadwal → implementasi → PIR → ditutup | CAB 1–2 persetujuan (risiko tinggi = 2), SoD; *ajukan akses DC* |
+| Service request | diajukan → menunggu persetujuan → disetujui → diproses → terpenuhi → ditutup | approver yang ditunjuk |
+| Vendor | prospek → due diligence → persetujuan → aktif → review → diputus | Procurement → Risk → CISO (kritikal) → Eksekutif (data offshore); exit strategy & persetujuan offshore wajib |
+| Kontrak | draft → review legal → persetujuan → aktif → review perpanjangan → berakhir/diputus | Vendor Mgr → Risk → Eksekutif (≥ Rp 1 M / alih daya material) |
+| Anggaran | draft → persetujuan → aktif → ditutup | IT Controller → CIO; komitmen & realisasi terhitung otomatis |
+| PO | draft → persetujuan → disetujui → dipesan → diterima (BAST) → ditutup | Procurement → Controller → CIO (≥ Rp 500 jt); **kontrol ketersediaan anggaran** |
+| Tagihan | diterima → terverifikasi (**3-way match**) → persetujuan → disetujui → lunas | AP → Controller (≥ Rp 100 jt); **jurnal otomatis** (beban/aset + PPN masukan / utang usaha) |
+| Pembayaran | draft → persetujuan → disetujui → dieksekusi (treasury) → direkonsiliasi | **maker-checker**; tidak boleh melebihi sisa tagihan; jurnal & status lunas otomatis |
+| Jurnal | draft → persetujuan → diposting → dibalik | debit = kredit; jurnal balik otomatis |
+| Aset (ITAM) | diminta → dipesan → stok → terpasang ⇄ perbaikan → retired → persetujuan disposal → dimusnahkan | Asset Mgr → CISO (sanitasi data, sertifikat pemusnahan) |
+| CMDB | planned → in build → aktif ⇄ maintenance → retired | relasi rak (DCIM) |
+| Risiko | teridentifikasi → dinilai → penanganan → monitoring → ditutup; *risk acceptance* | pemilik risiko → Risk Officer → Eksekutif (tinggi/kritis); *tambah mitigasi* |
+| Mitigasi | terbuka → dikerjakan → selesai (bukti) → terverifikasi | verifikasi independen (≠ pemilik) |
+| Pengujian kontrol | direncanakan → pengujian → review → disimpulkan | reviewer ≠ penguji; status kontrol diperbarui & **temuan otomatis** bila tidak efektif |
+| Temuan audit | terbuka → rencana tindak lanjut → remediasi → validasi → ditutup | validasi auditor (≠ pemilik), eksekutif untuk temuan kritis |
+| BIA | draft → review → pengesahan → disetujui → perlu update | pemilik proses → BCM |
+| BCP/DRP | draft → review → pengesahan → disetujui → teruji / perlu update | BCM → Eksekutif |
+| Uji DR | direncanakan → persetujuan → disetujui → dilaksanakan → dilaporkan → ditutup | BCM → Eksekutif (failover penuh); rencana diperbarui & **temuan otomatis** bila RTO/RPO terlampaui |
+| Data center & rak | planned → commissioning → operasional ⇄ maintenance → dinonaktifkan | utilisasi ruang & daya terhitung dari rak |
+| Akses fisik DC | diajukan → persetujuan → disetujui → check-in (verifikasi ID) → check-out | DC Mgr → CISO (pihak luar) |
+| Inisiatif / RPTI | diusulkan → assessment → persetujuan → disetujui → dieksekusi → selesai | Arsitek → Finance (≥ Rp 1 M) → IT Steering Committee; skor prioritas otomatis; *buat proyek* |
+| Arsitektur | draft → review → ARB → disetujui → deprecated | ARB → CIO (target state/investasi) |
+
+## Dashboard KPI
+
+Menu **Dashboard KPI** (eksekutif & manajer) menampilkan tren bulanan (3/6/12 bulan) dengan sparkline & delta:
+MTTR, kepatuhan SLA, keberhasilan change, belanja TI, anggaran vs komitmen vs realisasi, aging utang usaha,
+heatmap risiko inheren & residual 5×5, efektivitas kontrol, temuan & mitigasi terlambat, utilisasi daya/ruang DC,
+hasil uji DR (RTO aktual vs target), dan cakupan BIA layanan kritikal. Data mengikuti hak baca masing-masing peran.
 
 ## Menu sesuai peran (RBAC)
 
-Matriks hak akses default ada di `shared/permissions.mjs` (least privilege, 16 peran). Admin tenant dapat menyesuaikan
+Matriks hak akses default ada di `shared/permissions.mjs` (least privilege, 22 peran — termasuk IT Controller, Akuntan, Treasury, DC Manager, BCM Coordinator, dan CIO/Direksi). Admin tenant dapat menyesuaikan
 siapa yang boleh **melihat (R)** dan **mengubah (W)** setiap modul di menu **Peran & Akses**; server menegakkan matriks
 efektif (default ⊕ override tenant ⊖ paket), dan sidebar portal dibangun dari matriks yang sama — sehingga teknisi,
 auditor, risk officer, atau end user masing-masing hanya melihat menu yang relevan. Aturan alur kerja (mis. SoD di CAB)
@@ -114,7 +158,12 @@ tambahkan objek di `shared/frameworks.mjs`, petakan ke industri, lalu klik **Sin
 
 ```
 shared/   Logika bisnis murni — dipakai server & backend demo
-  permissions.mjs  Matriks hak akses + override tenant + batas paket
+  modules.mjs      Definisi deklaratif modul (field, workflow, hitungan) → model MongoDB, registry & UI
+  approvals.mjs    Mesin persetujuan multi-tahap
+  effects.mjs      Aturan lintas-record (kontrol anggaran, 3-way match, jurnal, temuan otomatis, utilisasi DC) & aksi "buat terkait"
+  kpi.mjs          Perhitungan Dashboard KPI
+  seed-extra.mjs   Data contoh modul lanjutan (dipakai seed server & demo)
+  permissions.mjs  Matriks hak akses + override tenant + grant modul
   plans.mjs        Paket langganan SaaS & validasi kode workspace
   workflows.mjs, sla.mjs, priority.mjs, notify.mjs, insights.mjs (dashboard/laporan/Pekerjaan Saya)
   frameworks.mjs   Katalog framework & regulasi per industri
@@ -184,20 +233,26 @@ Semua endpoint di bawah `/api` (kecuali `/api/public/*`, `/api/auth/login` dan `
 | `POST /:resource/:id/comments` `{message, type}` | Komentar / work note |
 | `POST /changes/:id/approve` `{decision, comment}` | Keputusan CAB |
 | `GET /:resource/:id/related` | Record lain yang mereferensikan record ini |
+| `POST /:resource/:id/approve {decision, comment}` | Keputusan tahap persetujuan saat ini |
+| `GET /:resource/:id/spawn/:target` · `POST /:target {..., _spawnFrom}` | Aksi "buat record terkait" (prefill + tautan balik) |
+| `GET /kpi?months=` | Dashboard KPI lintas domain |
 | `GET /dashboard`, `/reports?days=`, `/my-work`, `/search?q=` | Dashboard, laporan, Pekerjaan Saya, pencarian global |
 | `GET /notifications`, `POST /notifications/:id/read`, `/notifications/read-all` | Notifikasi in-app |
 | `GET /compliance/summary`, `POST /compliance/sync` | Kepatuhan |
 | `GET/PUT /tenant`, `GET/PUT /tenant/access`, `GET/POST/PUT /users`, `GET /audit-logs` | Administrasi workspace |
-| `GET/POST /platform/tenants`, `PUT /platform/tenants/:id` | Konsol operator platform |
+| `GET/POST /platform/tenants`, `PUT /platform/tenants/:id {plan, status, modules, maxUsers}` | Konsol operator platform (grant modul & kuota) |
 
 Resource: `incidents, requests, problems, changes, knowledge, services, sla-policies, configuration-items, assets,
-vendors, risks, controls, continuity, architecture, projects, sprints, backlog`.
+vendors, contracts, budgets, purchase-orders, invoices, payments, journals, risks, risk-actions, controls, control-tests,
+findings, bia, continuity, dr-tests, datacenters, racks, dc-access, initiatives, architecture, projects, sprints, backlog`.
 
 ## Belum tersedia (roadmap)
 
 - SLA berbasis jam kerja/kalender libur (saat ini kalender 24×7)
 - Notifikasi email/chat dan eskalasi otomatis (notifikasi in-app sudah ada)
 - Penagihan (billing) otomatis & self-service upgrade paket
+- Integrasi ERP/core accounting & bank (H2H) untuk eksekusi pembayaran; COA & tarif PPN perlu disesuaikan (`shared/finance.mjs`)
+- Integrasi sensor DCIM (daya/suhu real-time); saat ini utilisasi diisi manual per rak
 - SSO (SAML/OIDC) dan MFA
 - Lampiran file/evidence (saat ini berupa link)
 - Ekspor laporan PDF dan template laporan regulator (ekspor CSV per modul sudah ada)

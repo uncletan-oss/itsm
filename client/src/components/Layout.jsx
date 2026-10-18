@@ -8,7 +8,7 @@ import Icon from './Icon.jsx';
 import { Modal, initials, usePopover, useTheme, useToast } from './ui.jsx';
 import { fmtDateTime } from './format.jsx';
 
-const QUICK_CREATE = ['incidents', 'requests', 'problems', 'changes', 'knowledge', 'risks', 'assets'];
+const QUICK_CREATE = ['incidents', 'requests', 'changes', 'purchase-orders', 'invoices', 'risks', 'findings', 'dc-access', 'initiatives'];
 
 /** Menu dibangun dari matriks hak akses efektif: tiap peran hanya melihat modul yang boleh ia baca. */
 function useNav() {
@@ -31,7 +31,8 @@ function useNav() {
     {
       title: 'Analitik & Kepatuhan',
       items: [
-        canPage('reports') && { to: '/reports', label: 'Laporan', icon: 'chart' },
+        canPage('kpi') && { to: '/kpi', label: 'Dashboard KPI', icon: 'trend' },
+        canPage('reports') && { to: '/reports', label: 'Laporan Operasional', icon: 'chart' },
         canPage('compliance') && enabled('controls') && { to: '/compliance', label: 'Kepatuhan', icon: 'clipboard' },
         canPage('audit') && { to: '/audit', label: 'Audit Log', icon: 'scroll' },
       ].filter(Boolean),

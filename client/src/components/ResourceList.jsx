@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { MODULES } from '../config/modules.js';
+import { MODULE_DEFS, LEGACY_STATUS } from '../../../shared/modules.mjs';
 import { STATUS_LABELS, PRIORITY_LABELS } from '../config/labels.js';
 import { FormatValue, refLabel, fmtDate, fmtDateTime } from './format.jsx';
 import Icon from './Icon.jsx';
@@ -26,6 +27,9 @@ const OPEN_PRESET = {
 };
 
 export function statusOptions(resource) {
+  const spec = MODULE_DEFS[resource]?.workflow;
+  if (spec) return [...new Set([...Object.keys(spec.transitions), ...Object.values(spec.transitions).flat()])].map((st) => [st, STATUS_LABELS[st] || st]);
+  if (LEGACY_STATUS[resource]) return LEGACY_STATUS[resource].map((st) => [st, STATUS_LABELS[st] || st]);
   const wf = WORKFLOW_STATUSES[resource];
   if (wf) return wf.split(',').map((s) => [s, STATUS_LABELS[s] || s]);
   return MODULES[resource].fields.find((f) => f.key === 'status')?.options || null;

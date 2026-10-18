@@ -9,6 +9,7 @@ import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import MyWork from './pages/MyWork.jsx';
 import Reports from './pages/Reports.jsx';
+import Kpi from './pages/Kpi.jsx';
 import Portal from './pages/Portal.jsx';
 import Compliance from './pages/Compliance.jsx';
 import Settings from './pages/Settings.jsx';
@@ -52,6 +53,7 @@ export default function App() {
         <Route path="m/:resource" element={<ResourceList />} />
         <Route path="m/:resource/new" element={<ResourceForm />} />
         <Route path="m/:resource/:id" element={<ResourceDetail />} />
+        <Route path="kpi" element={<Guard page="kpi"><Kpi /></Guard>} />
         <Route path="reports" element={<Guard page="reports"><Reports /></Guard>} />
         <Route path="compliance" element={<Guard page="compliance"><Compliance /></Guard>} />
         <Route path="audit" element={<Guard page="audit"><AuditLog /></Guard>} />

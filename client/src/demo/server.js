@@ -13,12 +13,17 @@ import { DEFAULT_PERMISSIONS, PAGES, effectivePermissions, sanitizeOverrides, ca
 import { PLANS, PLAN_KEYS, validateSlug } from '../../../shared/plans.mjs';
 import { notificationsFor } from '../../../shared/notify.mjs';
 import { computeDashboard, computeReports, computeMyWork } from '../../../shared/insights.mjs';
+import { computeKpi } from '../../../shared/kpi.mjs';
+import { APPROVALS, approvalError, decide, startRound } from '../../../shared/approvals.mjs';
+import { CHECKS, EFFECTS, ON_SAVE, spawnPrefill, spawnRule } from '../../../shared/effects.mjs';
+import { ALL_MODULES } from '../../../shared/plans.mjs';
+import { grantedModules, userLimit } from '../../../shared/permissions.mjs';
 import { RESOURCES, hasRole, isRequesterOnly, same } from './registry.js';
 import { seed, DEMO_PASSWORD } from './seed.js';
 
-const KEY = 'itsm_demo_db_v3';
+const KEY = 'itsm_demo_db_v4';
 const NAME_KEYED = ['services', 'configuration-items', 'assets', 'vendors', 'continuity', 'architecture', 'projects', 'sprints', 'sla-policies'];
-const ALWAYS_PROTECTED = ['_id', 'id', 'tenant', 'number', 'activities', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'sla', '__v', 'allowedTransitions', 'slaStatus'];
+const ALWAYS_PROTECTED = ['_id', 'id', 'tenant', 'number', 'activities', 'approvals', 'approvalRound', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'sla', '__v', 'allowedTransitions', 'slaStatus', '_spawnFrom'];
 const DEFAULT_SLA = [[1, 15, 240], [2, 30, 480], [3, 120, 1440], [4, 480, 4320]];
 const DEFAULT_CATALOG = [
   { name: 'Reset Password', requestCategory: 'Akun', description: 'Reset password akun domain/email' },
@@ -40,19 +45,29 @@ const idOf = (v) => (v && typeof v === 'object' ? v._id : v);
 const nowIso = () => new Date().toISOString();
 
 let db = null;
-function load() {
-  if (db) return db;
-  try {
-    db = JSON.parse(localStorage.getItem(KEY));
-  } catch {
-    db = null;
-  }
-  if (!db) {
-    db = emptyDb();
-    seed(api);
-    save();
-  }
-  return db;
+let ready = false;
+let loading = null;
+async function load() {
+  if (ready) return db;
+  if (loading) return loading;
+  loading = (async () => {
+    let stored = null;
+    try {
+      stored = JSON.parse(localStorage.getItem(KEY));
+    } catch {
+      stored = null;
+    }
+    if (stored) db = stored;
+    else {
+      db = emptyDb();
+      await seed(api);
+      save();
+    }
+    ready = true;
+    loading = null;
+    return db;
+  })();
+  return loading;
 }
 function emptyDb() {
   return { tenants: [], users: [], counters: {}, audit: [], notifications: [], ...Object.fromEntries(Object.keys(RESOURCES).map((k) => [k, []])) };
@@ -64,10 +79,11 @@ function save() {
     console.warn('Gagal menyimpan data demo', e);
   }
 }
-export function resetDemo() {
+export async function resetDemo() {
   localStorage.removeItem(KEY);
   db = null;
-  load();
+  ready = false;
+  await load();
 }
 
 const nextNumber = (tenant, prefix) => {
@@ -109,13 +125,37 @@ const fullUser = (u) => {
   return rest;
 };
 
-function sanitize(body, protectedKeys) {
+function sanitize(body, protectedKeys, readonlyKeys = []) {
   const out = {};
   for (const [k, v] of Object.entries(body || {})) {
-    if (k.startsWith('$') || k.includes('.') || protectedKeys.includes(k)) continue;
-    out[k] = v === '' ? undefined : Array.isArray(v) ? v.map(idOf) : idOf(v);
+    if (k.startsWith('$') || k.includes('.') || protectedKeys.includes(k) || readonlyKeys.includes(k)) continue;
+    // baris (lines) disimpan apa adanya; referensi diubah ke id
+    out[k] = v === '' ? undefined : Array.isArray(v) ? v.map((x) => (x && typeof x === 'object' && !x._id ? x : idOf(x))) : idOf(v);
   }
   return out;
+}
+
+/** Antarmuka store untuk aturan lintas-record (shared/effects.mjs), terbatas pada tenant aktif. */
+function makeStore(ctx) {
+  const match = (d, filter) => Object.entries(filter || {}).every(([k, v]) => {
+    const val = d[k];
+    const vals = Array.isArray(val) ? val.map(String) : [String(val ?? '')];
+    if (v && typeof v === 'object' && Array.isArray(v.$in)) return v.$in.map(String).some((x) => vals.includes(x));
+    return vals.includes(String(v));
+  });
+  return {
+    get: async (res, rid) => clone(db[res].find((d) => d._id === String(rid) && d.tenant === ctx.tenant._id) || null),
+    find: async (res, filter) => clone(db[res].filter((d) => d.tenant === ctx.tenant._id && match(d, filter))),
+    update: async (res, rid, patch, note) => {
+      const d = db[res].find((x) => x._id === String(rid) && x.tenant === ctx.tenant._id);
+      if (!d) return null;
+      Object.assign(d, clone(patch), { updatedAt: nowIso() });
+      if (note && d.activities) d.activities.push({ _id: newId(), type: 'system', message: note, byName: 'Sistem', at: nowIso() });
+      audit(ctx, 'effect', res, d, patch);
+      return clone(d);
+    },
+    create: async (res, data) => clone(await createRecord(ctx, res, data, { trusted: true })),
+  };
 }
 
 /** Tolak referensi ke record tenant lain (cermin validateRefs di server). */
@@ -202,12 +242,30 @@ const requirePage = (ctx, page) => {
   if (!canPage(ctx.user, page)) throw new DemoError(403, 'Akses ditolak untuk peran Anda');
 };
 
+async function runCheck(ctx, name, doc, to) {
+  const check = CHECKS[name]?.[to];
+  if (!check) return;
+  const p = clone(doc);
+  const err = await check(p, makeStore(ctx));
+  if (err) throw new DemoError(422, err);
+  for (const k of ['vendor', 'matchResult']) if (p[k] !== undefined) doc[k] = p[k];
+}
+
+/** Transisi lengkap: cek → status → efek → notifikasi (cermin server/src/services/records.js). */
+async function transitionDoc(ctx, name, doc, to, note, before) {
+  await runCheck(ctx, name, doc, to);
+  performTransition(name, doc, to, note, ctx.user);
+  if (EFFECTS[name]?.[to]) await EFFECTS[name][to](clone(doc), makeStore(ctx));
+  notify(ctx, { event: 'transition', resource: name, label: RESOURCES[name].label, doc, before: before || { status: doc.status }, to });
+}
+
 function performTransition(name, doc, to, note, user) {
   const def = RESOURCES[name];
   const from = doc.status;
   const now = new Date();
   doc.status = to;
   def.workflow.onEnter?.[to]?.(doc, user, now);
+  startRound(def.approval, doc, to);
   if (doc.sla) doc.sla = applyTransition(reviveSla(doc.sla), from, to, now);
   const prevPriority = doc.priority;
   def.beforeSave?.(doc, user, false);
@@ -219,18 +277,18 @@ function performTransition(name, doc, to, note, user) {
 }
 
 // ---------- Resource handlers ----------
-function createRecord(ctx, name, body, { trusted = false } = {}) {
+async function createRecord(ctx, name, body, { trusted = false } = {}) {
   const def = RESOURCES[name];
   const { user, tenant } = ctx;
   if (!trusted) can(ctx, name, 'create');
   const protectedKeys = [...ALWAYS_PROTECTED, ...(def.protected || []), ...(def.workflow ? ['status'] : [])];
-  const titleKey = NAME_KEYED.includes(name) ? 'name' : 'title';
-  const data = trusted ? { ...body } : sanitize(body, protectedKeys);
+  const titleKey = def.titleKey !== undefined ? def.titleKey : NAME_KEYED.includes(name) ? 'name' : 'title';
+  const data = trusted ? Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined)) : sanitize(body, protectedKeys, def.readonlyKeys);
   if (!trusted) validateRefs(name, data, tenant._id);
   const now = nowIso();
   const doc = { ...clone(def.defaults || {}), ...data, _id: newId(), tenant: tenant._id, activities: [], createdBy: user._id, updatedBy: user._id, createdAt: data.createdAt || now, updatedAt: now };
   if (def.initial && !doc.status) doc.status = def.initial;
-  if (!doc[titleKey]) throw new DemoError(400, 'Validasi gagal', { [titleKey]: `${titleKey === 'name' ? 'Nama' : 'Judul'} wajib diisi` });
+  if (titleKey && !doc[titleKey]) throw new DemoError(400, 'Validasi gagal', { [titleKey]: `${titleKey === 'name' ? 'Nama' : 'Judul'} wajib diisi` });
   for (const [k, msg] of Object.entries(def.required || {})) if (!doc[k]) throw new DemoError(400, 'Validasi gagal', { [k]: msg });
   def.beforeCreate?.(doc, user, db);
   def.beforeSave?.(doc, user, true);
@@ -243,10 +301,11 @@ function createRecord(ctx, name, body, { trusted = false } = {}) {
     audit(ctx, 'create', name, stored);
     notify(ctx, { event: 'create', resource: name, label: def.label, doc: stored });
   }
+  if (ON_SAVE[name] && ctx.tenant) await ON_SAVE[name](clone(stored), makeStore(ctx));
   return stored;
 }
 
-function resourceRoute(ctx, name, method, rest, body, query) {
+async function resourceRoute(ctx, name, method, rest, body, query) {
   const def = RESOURCES[name];
   const { user } = ctx;
   const canWrite = ctx.perms[name].enabled && hasRole(user, ctx.perms[name].write);
@@ -277,12 +336,40 @@ function resourceRoute(ctx, name, method, rest, body, query) {
       total: items.length, page: pg, limit: lim,
     };
   }
-  if (!id && method === 'POST') return populate(name, createRecord(ctx, name, body), canWrite);
+  if (!id && method === 'POST') {
+    const created = await createRecord(ctx, name, body);
+    // Dibuat dari aksi "buat record terkait": isi tautan balik di record sumber
+    const from = typeof body._spawnFrom === 'string' ? body._spawnFrom.split(':') : null;
+    const rule = from && RESOURCES[from[0]] && spawnRule(from[0], name);
+    if (rule?.backlink) {
+      const src = tenantItems(from[0], ctx).find((d) => d._id === from[1]);
+      if (src) {
+        src[rule.backlink] = created._id;
+        src.activities?.push({ _id: newId(), type: 'system', message: `${def.label} ${created.number || ''} dibuat dari record ini`, by: user._id, byName: user.name, at: nowIso() });
+      }
+    }
+    return populate(name, created, canWrite);
+  }
 
-  const doc = findDoc(name, id, ctx);
+  const doc = tenantItems(name, ctx).find((d) => d._id === id);
+  if (!doc) throw new DemoError(404, `${def.label} tidak ditemukan`);
+  // Penyetuju yang ditunjuk (mis. pemilik risiko) boleh melihat & memutuskan walau tanpa akses modul
+  const designated = (def.approval?.steps || []).some((st) => st.field && same(doc[st.field], user));
+  const scopeFn = def.scope?.(user);
+  if (scopeFn && !scopeFn(doc)) throw new DemoError(404, `${def.label} tidak ditemukan`);
+  const assertView = () => {
+    if (!ctx.perms[name].enabled) throw new DemoError(403, `Modul ${def.label} tidak termasuk paket langganan workspace ini`);
+    if (!hasRole(user, ctx.perms[name].read) && !designated) throw new DemoError(403, `Anda tidak berwenang (read) pada ${def.label}`);
+  };
   if (!action && method === 'GET') {
-    can(ctx, name, 'read');
+    assertView();
     return populate(name, doc, canWrite);
+  }
+  if (action === 'spawn' && method === 'GET') {
+    can(ctx, name, 'read');
+    const data = spawnPrefill(name, clone(doc), rest[2]);
+    if (!data) throw new DemoError(404, 'Aksi tidak tersedia');
+    return data;
   }
   if (action === 'related' && method === 'GET') {
     can(ctx, name, 'read');
@@ -302,7 +389,7 @@ function resourceRoute(ctx, name, method, rest, body, query) {
   if (!action && method === 'PUT') {
     can(ctx, name, 'write');
     const before = clone(doc);
-    const updates = sanitize(body, protectedKeys);
+    const updates = sanitize(body, protectedKeys, def.readonlyKeys);
     validateRefs(name, updates, ctx.tenant._id);
     Object.assign(doc, updates);
     for (const [k, v] of Object.entries(updates)) if (v === undefined) delete doc[k];
@@ -315,6 +402,7 @@ function resourceRoute(ctx, name, method, rest, body, query) {
     const changes = diff(before, doc, [...Object.keys(updates), 'priority']);
     if (Object.keys(changes).length) audit(ctx, 'update', name, doc, changes);
     notify(ctx, { event: 'update', resource: name, label: def.label, doc, before });
+    if (ON_SAVE[name]) await ON_SAVE[name](clone(doc), makeStore(ctx));
     return populate(name, doc, canWrite);
   }
   if (!action && method === 'DELETE') {
@@ -336,38 +424,46 @@ function resourceRoute(ctx, name, method, rest, body, query) {
     const { to, note, ...fields } = body || {};
     if (!(canWrite || def.canTransition?.(user, doc, to))) throw new DemoError(403, 'Anda tidak berwenang mengubah status');
     const before = clone(doc);
-    const updates = sanitize(fields, protectedKeys);
-    if (canWrite) validateRefs(name, updates, ctx.tenant._id);
-    const draft = { ...clone(doc), ...(canWrite ? updates : {}) };
+    const updates = sanitize(fields, protectedKeys, def.readonlyKeys);
+    const allowed = canWrite ? updates : Object.fromEntries(Object.entries(updates).filter(([k]) => def.transitionFieldsFor?.(to).includes(k)));
+    validateRefs(name, allowed, ctx.tenant._id);
+    const draft = { ...clone(doc), ...allowed };
+    def.beforeSave?.(draft, user, false);
     const err = checkTransition(def.workflow, draft, to, user);
     if (err) throw new DemoError(422, err);
-    if (canWrite) Object.assign(doc, updates);
-    performTransition(name, doc, to, note, user);
-    audit(ctx, 'transition', name, doc, { status: { from: before.status, to }, ...diff(before, doc, Object.keys(updates)) });
-    notify(ctx, { event: 'transition', resource: name, label: def.label, doc, before, to });
+    Object.assign(doc, allowed);
+    def.beforeSave?.(doc, user, false);
+    await transitionDoc(ctx, name, doc, to, note, before);
+    audit(ctx, 'transition', name, doc, { status: { from: before.status, to }, ...diff(before, doc, Object.keys(allowed)) });
     return populate(name, doc, canWrite);
   }
-  if (name === 'changes' && action === 'approve' && method === 'POST') {
-    can(ctx, name, 'read');
-    if (!hasRole(user, ['cab_member', 'change_manager'])) throw new DemoError(403, 'Hanya anggota CAB / Change Manager');
-    if (doc.status !== 'cab_review') throw new DemoError(422, 'Change tidak sedang dalam CAB review');
-    if ([doc.requester, doc.createdBy, doc.assignee].some((u) => u && u === user._id))
-      throw new DemoError(422, 'Segregation of duties: pemohon/implementer tidak boleh menyetujui change ini');
-    if (doc.approvals.some((a) => a.approver === user._id)) throw new DemoError(409, 'Anda sudah memberikan keputusan');
+  // Persetujuan multi-tahap generik (shared/approvals.mjs)
+  if (action === 'approve' && method === 'POST' && def.approval) {
+    assertView();
+    const policy = def.approval;
+    const err = approvalError(policy, doc, user);
+    if (err) throw new DemoError(doc.status !== policy.status ? 422 : 403, err);
     const before = clone(doc);
-    const decision = body.decision === 'rejected' ? 'rejected' : 'approved';
-    doc.approvals.push({ _id: newId(), approver: user._id, approverName: user.name, decision, comment: body.comment, at: nowIso() });
-    const approved = doc.approvals.filter((a) => a.decision === 'approved').length;
-    const to = decision === 'rejected' ? 'rejected' : approved >= (doc.requiredApprovals || 1) ? 'approved' : null;
-    if (to) {
-      const err = checkTransition(def.workflow, doc, to, user, { viaApproval: true });
-      if (err) throw new DemoError(422, err);
-      performTransition(name, doc, to, `CAB: ${body.comment || decision}`, user);
-      notify(ctx, { event: 'transition', resource: name, label: def.label, doc, before, to });
+    const { record, outcome, next } = decide(policy, doc, user, body.decision, body.comment);
+    record._id = newId();
+    if (outcome === 'pending') {
+      doc.activities.push({ _id: newId(), type: 'system', message: `Disetujui tahap "${record.step}" oleh ${user.name}${record.comment ? ` — ${record.comment}` : ''}`, by: user._id, byName: user.name, at: nowIso() });
+      notify(ctx, { event: 'approval_step', resource: name, label: def.label, doc, next });
     } else {
-      doc.activities.push({ _id: newId(), type: 'system', message: `CAB approval ${approved}/${doc.requiredApprovals} oleh ${user.name}`, by: user._id, byName: user.name, at: nowIso() });
+      const to = outcome === 'approved' ? policy.approved : policy.rejected;
+      const terr = checkTransition(def.workflow, doc, to, user, { viaApproval: true });
+      if (terr) {
+        doc.approvals.pop();
+        throw new DemoError(422, terr);
+      }
+      try {
+        await transitionDoc(ctx, name, doc, to, `${policy.label} — ${record.step}: ${outcome === 'approved' ? 'disetujui' : 'ditolak'}${record.comment ? ` (${record.comment})` : ''}`, before);
+      } catch (e) {
+        doc.approvals.pop();
+        throw e;
+      }
     }
-    audit(ctx, 'approval', name, doc, { decision, comment: body.comment });
+    audit(ctx, 'approval', name, doc, { step: record.step, decision: record.decision, comment: record.comment });
     return populate(name, doc, canWrite);
   }
   throw new DemoError(404, `Endpoint tidak ditemukan: ${method} ${name}/${rest.join('/')}`);
@@ -390,7 +486,7 @@ function syncControls(tenantId, frameworkIds, user) {
   return created;
 }
 
-function provisionTenant({ slug, name, industry = 'general', plan = 'professional', status = 'trial', admin }) {
+async function provisionTenant({ slug, name, industry = 'general', plan = 'professional', status = 'trial', admin }) {
   const slugErr = validateSlug(slug);
   if (slugErr) throw new DemoError(400, slugErr);
   if (!PLANS[plan]) throw new DemoError(400, 'Paket tidak dikenal');
@@ -409,10 +505,10 @@ function provisionTenant({ slug, name, industry = 'general', plan = 'professiona
   db.users.push(user);
   const ctx = { tenant, user };
   for (const [p, r, res] of DEFAULT_SLA) {
-    createRecord(ctx, 'sla-policies', { name: `Incident P${p}`, appliesTo: 'incident', priority: p, responseMinutes: r, resolutionMinutes: res }, { trusted: true });
-    createRecord(ctx, 'sla-policies', { name: `Request P${p}`, appliesTo: 'request', priority: p, responseMinutes: r * 2, resolutionMinutes: res * 3 }, { trusted: true });
+    await createRecord(ctx, 'sla-policies', { name: `Incident P${p}`, appliesTo: 'incident', priority: p, responseMinutes: r, resolutionMinutes: res }, { trusted: true });
+    await createRecord(ctx, 'sla-policies', { name: `Request P${p}`, appliesTo: 'request', priority: p, responseMinutes: r * 2, resolutionMinutes: res * 3 }, { trusted: true });
   }
-  for (const svc of DEFAULT_CATALOG) createRecord(ctx, 'services', { requestable: true, criticality: 'low', ...svc }, { trusted: true });
+  for (const svc of DEFAULT_CATALOG) await createRecord(ctx, 'services', { requestable: true, criticality: 'low', ...svc }, { trusted: true });
   syncControls(tenant._id, tenant.enabledFrameworks, user);
   return { tenant, user };
 }
@@ -447,10 +543,10 @@ function session(ctx) {
 }
 
 // ---------- Endpoint publik (tanpa login) ----------
-function publicRoute([what, slug, sub, id], method, body, query) {
+async function publicRoute([what, slug, sub, id], method, body, query) {
   if (what === 'signup' && method === 'POST') {
     const plan = ['starter', 'professional'].includes(body.plan) ? body.plan : 'professional';
-    const { tenant, user } = provisionTenant({
+    const { tenant, user } = await provisionTenant({
       slug: String(body.slug || '').toLowerCase().trim(), name: String(body.organizationName || '').trim(), industry: body.industry, plan,
       admin: { name: String(body.adminName || '').trim(), email: String(body.adminEmail || '').toLowerCase().trim(), password: String(body.password || '') },
     });
@@ -491,7 +587,7 @@ function publicRoute([what, slug, sub, id], method, body, query) {
 }
 
 // ---------- Router ----------
-function route(method, path, body, query, token) {
+async function route(method, path, body, query, token) {
   const parts = path.split('/').filter(Boolean);
   if (path === '/health') return { status: 'ok', mode: 'demo' };
   if (parts[0] === 'public') return publicRoute(parts.slice(1), method, body, query);
@@ -536,11 +632,12 @@ function route(method, path, body, query, token) {
           ...t,
           activeUsers: db.users.filter((u) => u.tenant === t._id && u.active).length,
           incidents: db.incidents.filter((i) => i.tenant === t._id).length,
+          grantedModules: grantedModules(t), customModules: !!t.modules?.length, userLimit: userLimit(t),
         })),
       };
     }
     if (method === 'POST') {
-      const { tenant: t } = provisionTenant({
+      const { tenant: t } = await provisionTenant({
         slug: String(body.slug || '').toLowerCase().trim(), name: body.name, industry: body.industry, plan: body.plan, status: body.status || 'active',
         admin: { name: body.adminName, email: String(body.adminEmail || '').toLowerCase().trim(), password: body.adminPassword },
       });
@@ -551,10 +648,21 @@ function route(method, path, body, query, token) {
     if (!t) throw new DemoError(404, 'Tenant tidak ditemukan');
     if (body.plan !== undefined && !PLAN_KEYS.includes(body.plan)) throw new DemoError(400, 'Paket tidak dikenal');
     if (body.status !== undefined && !['trial', 'active', 'suspended'].includes(body.status)) throw new DemoError(400, 'Status tidak dikenal');
-    const before = { plan: t.plan, status: t.status };
+    const before = { plan: t.plan, status: t.status, modules: t.modules || null, maxUsers: t.maxUsers ?? null };
     if (body.plan) t.plan = body.plan;
     if (body.status) t.status = body.status;
-    audit({ user }, 'update', 'tenants', t, diff(before, t, ['plan', 'status']));
+    // Grant modul per tenant (override paket) & kuota pengguna
+    if (body.modules !== undefined) {
+      const mods = Array.isArray(body.modules) ? body.modules.filter((m) => ALL_MODULES.includes(m)) : null;
+      if (mods?.length) t.modules = mods;
+      else delete t.modules;
+    }
+    if (body.maxUsers !== undefined) {
+      const n = body.maxUsers === null || body.maxUsers === '' ? null : Number(body.maxUsers);
+      if (n !== null && (!Number.isInteger(n) || n < 1)) throw new DemoError(400, 'Batas pengguna harus bilangan bulat ≥ 1');
+      t.maxUsers = n;
+    }
+    audit({ user }, 'update', 'tenants', t, diff(before, { ...t, modules: t.modules || null, maxUsers: t.maxUsers ?? null }, ['plan', 'status', 'modules', 'maxUsers']));
     return t;
   }
   if (!tenant) throw new DemoError(403, 'Rute ini hanya untuk pengguna workspace');
@@ -567,14 +675,14 @@ function route(method, path, body, query, token) {
       if (query.active !== 'all') items = items.filter((u) => u.active);
       if (query.role) items = items.filter((u) => u.roles.includes(query.role));
       if (query.q) items = items.filter((u) => `${u.name} ${u.email}`.toLowerCase().includes(query.q.toLowerCase()));
-      return { items: sortBy(items, 'name').map(fullUser), total: items.length, limit: PLANS[tenant.plan]?.maxUsers ?? null, used: mine.filter((u) => u.active).length };
+      return { items: sortBy(items, 'name').map(fullUser), total: items.length, limit: userLimit(tenant), used: mine.filter((u) => u.active).length };
     }
     requireRole('admin');
     const { name, email, password, roles, department, title, phone, active } = body;
     const validRoles = Array.isArray(roles) ? roles.filter((r) => ROLES[r]) : undefined;
     if (method === 'POST') {
-      const max = PLANS[tenant.plan]?.maxUsers;
-      if (max && mine.filter((u) => u.active).length >= max) throw new DemoError(402, `Batas ${max} pengguna aktif untuk paket ${PLANS[tenant.plan].name} tercapai. Upgrade paket untuk menambah pengguna.`);
+      const max = userLimit(tenant);
+      if (max && mine.filter((u) => u.active).length >= max) throw new DemoError(402, `Batas ${max} pengguna aktif untuk workspace ini tercapai. Hubungi operator platform untuk menambah kuota.`);
       if (!password || password.length < 8) throw new DemoError(400, 'Password minimal 8 karakter');
       if (mine.some((u) => u.email === String(email).toLowerCase())) throw new DemoError(409, 'Data duplikat');
       const u = { _id: newId(), tenant: tenant._id, name, email: String(email).toLowerCase(), password, roles: validRoles?.length ? validRoles : ['requester'], department, title, phone, active: true, createdAt: nowIso() };
@@ -643,8 +751,13 @@ function route(method, path, body, query, token) {
     const svc = Object.fromEntries(tenantItems('services', ctx).map((s) => [s._id, s.name]));
     return computeReports(data, { days, serviceName: (id) => svc[id] });
   }
+  if (path === '/kpi') {
+    requirePage(ctx, 'kpi');
+    const data = readable(ctx, ['incidents', 'changes', 'requests', 'problems', 'budgets', 'invoices', 'payments', 'risks', 'controls', 'findings', 'risk-actions', 'control-tests', 'datacenters', 'racks', 'dc-access', 'continuity', 'bia', 'dr-tests', 'services', 'assets', 'vendors', 'contracts']);
+    return computeKpi(data, { period: Math.min(Math.max(Number(query.months) || 6, 3), 12) });
+  }
   if (path === '/my-work') {
-    const data = readable(ctx, ['incidents', 'requests', 'problems', 'changes', 'backlog', 'risks', 'knowledge']);
+    const data = readable(ctx, [...new Set(['incidents', 'requests', 'problems', 'changes', 'backlog', 'risks', 'knowledge', 'risk-actions', 'findings', ...Object.keys(APPROVALS)])]);
     return computeMyWork(data, user, { hasRole, canRead: (n) => !!data[n] });
   }
   if (path === '/search') {
@@ -683,10 +796,10 @@ function route(method, path, body, query, token) {
 
 /** Antarmuka utama: dipanggil oleh client/src/api.js saat mode demo aktif. */
 export async function handle(method, path, { body, query = {}, token } = {}) {
-  load();
+  await load();
   const q = Object.fromEntries(Object.entries(query || {}).filter(([, v]) => v !== '' && v != null).map(([k, v]) => [k, String(v)]));
   try {
-    const result = route(method, path, body || {}, q, token);
+    const result = await route(method, path, body || {}, q, token);
     save();
     return result === null ? null : clone(result);
   } catch (err) {
@@ -702,6 +815,7 @@ const api = {
   provisionTenant,
   createRecord,
   performTransition,
+  makeStore,
   DEMO_PASSWORD,
 };
 
