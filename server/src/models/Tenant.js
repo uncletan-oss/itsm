@@ -18,6 +18,9 @@ const tenantSchema = new mongoose.Schema(
       tagline: String,
       accent: { type: String, match: [/^#[0-9a-fA-F]{6}$/, 'Warna harus format #RRGGBB'] },
     },
+    // Diatur operator platform: modul yang di-grant (kosong = default paket) & batas pengguna (kosong = default paket)
+    modules: { type: [String], default: undefined },
+    maxUsers: { type: Number, default: null },
     // Override matriks hak akses per resource { incidents: { read: [...], write: [...] } }
     permissions: { type: mongoose.Schema.Types.Mixed, default: {} },
   },

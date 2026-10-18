@@ -2,6 +2,7 @@
 const mongoose = require('mongoose');
 const { Schema } = mongoose;
 const { basePlugin, ref } = require('./common');
+const { LEGACY_STATUS } = require('../../../shared/modules.mjs');
 
 const serviceSchema = new Schema({
   name: { type: String, required: [true, 'Nama layanan wajib diisi'], trim: true },
@@ -28,7 +29,7 @@ const ciSchema = new Schema({
     enum: ['server', 'virtual_machine', 'database', 'application', 'network_device', 'storage', 'cloud_service', 'container', 'endpoint', 'other'],
     default: 'server',
   },
-  status: { type: String, enum: ['planned', 'active', 'maintenance', 'retired'], default: 'active' },
+  status: { type: String, enum: LEGACY_STATUS['configuration-items'], default: 'planned' },
   environment: { type: String, enum: ['production', 'dr', 'staging', 'development', 'test'], default: 'production' },
   owner: ref('User'),
   supportGroup: String,
@@ -45,6 +46,8 @@ const ciSchema = new Schema({
   dependsOn: [ref('ConfigurationItem')],
   asset: ref('Asset'),
   vendor: ref('Vendor'),
+  rack: ref('Rack'),
+  rackPosition: String, // mis. U12–U14
 });
 ciSchema.plugin(basePlugin);
 
@@ -52,11 +55,7 @@ const assetSchema = new Schema({
   name: { type: String, required: [true, 'Nama aset wajib diisi'], trim: true },
   assetTag: String,
   category: { type: String, enum: ['hardware', 'software', 'license', 'cloud', 'network', 'mobile', 'other'], default: 'hardware' },
-  status: {
-    type: String,
-    enum: ['requested', 'ordered', 'in_stock', 'deployed', 'in_repair', 'retired', 'disposed'],
-    default: 'in_stock',
-  },
+  status: { type: String, enum: LEGACY_STATUS.assets, default: 'requested' },
   manufacturer: String,
   model: String,
   serialNumber: String,
@@ -85,7 +84,7 @@ assetSchema.plugin(basePlugin);
 const vendorSchema = new Schema({
   name: { type: String, required: [true, 'Nama vendor wajib diisi'], trim: true },
   category: { type: String, enum: ['cloud', 'data_center', 'software', 'hardware', 'network', 'managed_service', 'consulting', 'other'], default: 'other' },
-  status: { type: String, enum: ['prospect', 'onboarding', 'active', 'under_review', 'terminated'], default: 'active' },
+  status: { type: String, enum: LEGACY_STATUS.vendors, default: 'prospect' },
   criticality: { type: String, enum: ['critical', 'high', 'medium', 'low'], default: 'medium' },
   contactName: String,
   contactEmail: String,

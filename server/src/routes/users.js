@@ -5,6 +5,7 @@ const { authorize } = require('../middleware/auth');
 const { HttpError, asyncHandler } = require('../middleware/error');
 const { audit, diff } = require('../services/audit');
 const { PLANS } = require('../../../shared/plans.mjs');
+const { userLimit } = require('../../../shared/permissions.mjs');
 
 const router = express.Router();
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -24,7 +25,7 @@ router.get(
     if (typeof req.query.role === 'string' && req.query.role) filter.roles = req.query.role;
     if (req.query.active !== 'all') filter.active = true;
     const items = await User.find(filter).sort('name').limit(500);
-    const limit = PLANS[req.tenant.plan]?.maxUsers ?? null;
+    const limit = userLimit(req.tenant);
     res.json({ items, total: items.length, limit, used: await User.countDocuments({ tenant: req.tenant._id, active: true }) });
   })
 );
@@ -33,9 +34,9 @@ router.post(
   '/',
   authorize('admin'),
   asyncHandler(async (req, res) => {
-    const max = PLANS[req.tenant.plan]?.maxUsers;
+    const max = userLimit(req.tenant);
     if (max && (await User.countDocuments({ tenant: req.tenant._id, active: true })) >= max) {
-      throw new HttpError(402, `Batas ${max} pengguna aktif untuk paket ${PLANS[req.tenant.plan].name} tercapai. Upgrade paket untuk menambah pengguna.`);
+      throw new HttpError(402, `Batas ${max} pengguna aktif untuk workspace ini (paket ${PLANS[req.tenant.plan].name}) tercapai. Hubungi operator platform untuk menambah kuota.`);
     }
     const { name, email, password, department, title, phone } = req.body;
     const user = new User({ tenant: req.tenant._id, name, email, roles: validRoles(req.body.roles) || ['requester'], department, title, phone });

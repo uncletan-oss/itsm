@@ -1,7 +1,19 @@
-/** Paket langganan SaaS — menentukan modul yang aktif dan batas pengguna per tenant. */
-const CORE = ['incidents', 'requests', 'problems', 'changes', 'knowledge', 'services', 'sla-policies', 'configuration-items', 'assets'];
-const GRC = ['vendors', 'risks', 'controls', 'continuity'];
-const EA = ['architecture', 'projects', 'sprints', 'backlog'];
+/**
+ * Paket langganan SaaS — modul default & batas pengguna per tenant.
+ * Operator platform dapat menimpa daftar modul per tenant (Tenant.modules) dan batas pengguna (Tenant.maxUsers).
+ */
+export const DOMAINS = {
+  core: { name: 'IT Service Management', modules: ['incidents', 'requests', 'problems', 'changes', 'knowledge', 'services', 'sla-policies', 'configuration-items', 'assets'] },
+  grc: { name: 'GRC & Assurance', modules: ['vendors', 'contracts', 'risks', 'risk-actions', 'controls', 'control-tests', 'findings'] },
+  bcm: { name: 'Ketahanan (BCM & DR)', modules: ['bia', 'continuity', 'dr-tests'] },
+  dcim: { name: 'Data Center (DCIM)', modules: ['datacenters', 'racks', 'dc-access'] },
+  finance: { name: 'Keuangan TI (ITFM)', modules: ['budgets', 'purchase-orders', 'invoices', 'payments', 'journals'] },
+  planning: { name: 'Arsitektur & Perencanaan', modules: ['initiatives', 'architecture', 'projects', 'sprints', 'backlog'] },
+};
+const CORE = DOMAINS.core.modules;
+const GRC = [...DOMAINS.grc.modules, ...DOMAINS.bcm.modules];
+const EA = [...DOMAINS.dcim.modules, ...DOMAINS.finance.modules, ...DOMAINS.planning.modules];
+export const ALL_MODULES = Object.values(DOMAINS).flatMap((d) => d.modules);
 
 export const PLANS = {
   starter: {
@@ -11,13 +23,13 @@ export const PLANS = {
   },
   professional: {
     name: 'Professional', price: 'Rp 6 jt / bulan', maxUsers: 100, modules: [...CORE, ...GRC],
-    summary: 'ITSM + tata kelola, risiko & kepatuhan untuk industri teregulasi.',
-    features: ['Semua fitur Starter', 'Risk register & kontrol kepatuhan', 'Manajemen vendor / penyedia jasa TI', 'BCP / DRP'],
+    summary: 'ITSM + GRC, assurance & ketahanan untuk industri teregulasi.',
+    features: ['Semua fitur Starter', 'Risiko, mitigasi, pengujian kontrol & temuan audit', 'Vendor & kontrak penyedia jasa TI', 'BIA, BCP/DRP & uji DR'],
   },
   enterprise: {
     name: 'Enterprise', price: 'Hubungi kami', maxUsers: null, modules: [...CORE, ...GRC, ...EA],
-    summary: 'Platform lengkap ITSM, GRC, arsitektur & portofolio proyek.',
-    features: ['Semua fitur Professional', 'Repositori arsitektur TOGAF', 'Proyek, sprint & backlog', 'Pengguna tanpa batas'],
+    summary: 'Platform lengkap: ITSM, GRC, DCIM, keuangan TI, arsitektur & portofolio.',
+    features: ['Semua fitur Professional', 'Keuangan TI: anggaran, PO, tagihan, pembayaran, jurnal', 'DCIM: data center, rak & akses fisik', 'Perencanaan TI, TOGAF, proyek & Scrum'],
   },
 };
 

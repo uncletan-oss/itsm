@@ -6,7 +6,8 @@ const { Incident } = require('../models/itsm');
 const { asyncHandler, HttpError } = require('../middleware/error');
 const { provisionTenant } = require('../services/provision');
 const { audit } = require('../services/audit');
-const { PLAN_KEYS } = require('../../../shared/plans.mjs');
+const { PLAN_KEYS, ALL_MODULES } = require('../../../shared/plans.mjs');
+const { grantedModules, userLimit } = require('../../../shared/permissions.mjs');
 
 const router = express.Router();
 
@@ -21,7 +22,10 @@ router.get(
     const u = Object.fromEntries(users.map((x) => [String(x._id), x.n]));
     const k = Object.fromEntries(tickets.map((x) => [String(x._id), x.n]));
     res.json({
-      items: tenants.map(({ permissions, ...x }) => ({ ...x, activeUsers: u[String(x._id)] || 0, incidents: k[String(x._id)] || 0 })),
+      items: tenants.map(({ permissions, ...x }) => ({
+        ...x, activeUsers: u[String(x._id)] || 0, incidents: k[String(x._id)] || 0,
+        grantedModules: grantedModules(x), customModules: !!x.modules?.length, userLimit: userLimit(x),
+      })),
     });
   })
 );
@@ -54,6 +58,18 @@ router.put(
       if (!['trial', 'active', 'suspended'].includes(req.body.status)) throw new HttpError(400, 'Status tidak dikenal');
       changes.status = { from: tenant.status, to: req.body.status };
       tenant.status = req.body.status;
+    }
+    // Grant modul per tenant: array modul (override paket) atau null untuk kembali ke default paket
+    if (req.body.modules !== undefined) {
+      const mods = Array.isArray(req.body.modules) ? req.body.modules.filter((m) => ALL_MODULES.includes(m)) : null;
+      changes.modules = { from: tenant.modules || null, to: mods };
+      tenant.modules = mods?.length ? mods : undefined;
+    }
+    if (req.body.maxUsers !== undefined) {
+      const n = req.body.maxUsers === null || req.body.maxUsers === '' ? null : Number(req.body.maxUsers);
+      if (n !== null && (!Number.isInteger(n) || n < 1)) throw new HttpError(400, 'Batas pengguna harus bilangan bulat ≥ 1');
+      changes.maxUsers = { from: tenant.maxUsers, to: n };
+      tenant.maxUsers = n;
     }
     await tenant.save();
     await audit(req, 'update', 'tenants', tenant, changes, null);

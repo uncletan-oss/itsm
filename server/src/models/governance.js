@@ -2,6 +2,7 @@
 const mongoose = require('mongoose');
 const { Schema } = mongoose;
 const { basePlugin, ref } = require('./common');
+const { LEGACY_STATUS } = require('../../../shared/modules.mjs');
 
 const NIST_FUNCTIONS = ['', 'GV', 'ID', 'PR', 'DE', 'RS', 'RC'];
 
@@ -14,7 +15,7 @@ const riskSchema = new Schema({
     default: 'operational',
   },
   nistFunction: { type: String, enum: NIST_FUNCTIONS, default: '' },
-  status: { type: String, enum: ['identified', 'assessed', 'treating', 'monitoring', 'closed'], default: 'identified' },
+  status: { type: String, enum: LEGACY_STATUS.risks, default: 'identified' },
   owner: ref('User'),
   likelihood: { type: Number, min: 1, max: 5, default: 3 },
   impact: { type: Number, min: 1, max: 5, default: 3 },
@@ -23,6 +24,7 @@ const riskSchema = new Schema({
   existingControls: String,
   treatment: { type: String, enum: ['', 'mitigate', 'transfer', 'avoid', 'accept'] },
   treatmentPlan: String,
+  acceptanceRationale: String,
   residualLikelihood: { type: Number, min: 1, max: 5 },
   residualImpact: { type: Number, min: 1, max: 5 },
   residualScore: Number,
@@ -64,7 +66,7 @@ controlSchema.index({ tenant: 1, frameworkId: 1, code: 1 }, { unique: true });
 const continuitySchema = new Schema({
   name: { type: String, required: [true, 'Nama rencana wajib diisi'], trim: true },
   planType: { type: String, enum: ['bcp', 'drp', 'crisis', 'incident_response'], default: 'drp' },
-  status: { type: String, enum: ['draft', 'approved', 'tested', 'needs_update', 'retired'], default: 'draft' },
+  status: { type: String, enum: LEGACY_STATUS.continuity, default: 'draft' },
   owner: ref('User'),
   services: [ref('Service')],
   rtoHours: Number,
@@ -92,7 +94,7 @@ const architectureSchema = new Schema({
   },
   state: { type: String, enum: ['baseline', 'transition', 'target'], default: 'baseline' },
   lifecycle: { type: String, enum: ['plan', 'invest', 'tolerate', 'migrate', 'eliminate'], default: 'tolerate' }, // TIME model
-  status: { type: String, enum: ['draft', 'review', 'approved', 'deprecated'], default: 'draft' },
+  status: { type: String, enum: LEGACY_STATUS.architecture, default: 'draft' },
   owner: ref('User'),
   description: String,
   principles: String,

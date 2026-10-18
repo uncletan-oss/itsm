@@ -5,6 +5,7 @@
  */
 import { ROLE_KEYS, hasRole } from './roles.mjs';
 import { PLANS } from './plans.mjs';
+import { MODULE_DEFS } from './modules.mjs';
 
 export const ALL = ['*'];
 
@@ -12,30 +13,32 @@ export const DEFAULT_PERMISSIONS = {
   incidents: { read: ALL, create: ALL, write: ['service_desk', 'technician', 'incident_manager', 'security_officer'] },
   requests: { read: ALL, create: ALL, write: ['service_desk', 'technician'] },
   problems: {
-    read: ['service_desk', 'technician', 'incident_manager', 'problem_manager', 'change_manager', 'knowledge_manager', 'security_officer', 'auditor'],
+    read: ['service_desk', 'technician', 'incident_manager', 'problem_manager', 'change_manager', 'knowledge_manager', 'security_officer', 'executive', 'auditor'],
     write: ['problem_manager', 'incident_manager', 'technician'],
   },
   changes: {
-    read: ['technician', 'incident_manager', 'problem_manager', 'change_manager', 'cab_member', 'asset_manager', 'security_officer', 'architect', 'project_manager', 'risk_officer', 'auditor'],
+    read: ['technician', 'incident_manager', 'problem_manager', 'change_manager', 'cab_member', 'asset_manager', 'security_officer', 'architect', 'project_manager', 'risk_officer', 'dc_manager', 'executive', 'auditor'],
     write: ['change_manager', 'technician', 'architect', 'project_manager', 'security_officer', 'asset_manager'],
   },
   knowledge: { read: ALL, write: ['knowledge_manager', 'service_desk', 'technician', 'problem_manager'] },
   services: { read: ALL, write: ['asset_manager', 'architect'], remove: ['admin'] },
   'sla-policies': { read: ['service_desk', 'technician', 'incident_manager', 'auditor'], write: ['incident_manager'], remove: ['admin'] },
   'configuration-items': {
-    read: ['service_desk', 'technician', 'incident_manager', 'problem_manager', 'change_manager', 'cab_member', 'asset_manager', 'architect', 'security_officer', 'risk_officer', 'auditor'],
+    read: ['service_desk', 'technician', 'incident_manager', 'problem_manager', 'change_manager', 'cab_member', 'asset_manager', 'architect', 'security_officer', 'risk_officer', 'dc_manager', 'bcm_manager', 'auditor'],
     write: ['asset_manager', 'technician'],
     remove: ['asset_manager'],
   },
-  assets: { read: ['asset_manager', 'technician', 'service_desk', 'vendor_manager', 'risk_officer', 'auditor'], write: ['asset_manager'] },
-  vendors: { read: ['vendor_manager', 'risk_officer', 'security_officer', 'asset_manager', 'auditor'], write: ['vendor_manager', 'risk_officer'] },
-  risks: { read: ['risk_officer', 'security_officer', 'architect', 'project_manager', 'vendor_manager', 'auditor'], write: ['risk_officer', 'security_officer'] },
-  controls: { read: ['risk_officer', 'security_officer', 'auditor'], write: ['risk_officer', 'security_officer'] },
-  continuity: { read: ['risk_officer', 'security_officer', 'asset_manager', 'technician', 'incident_manager', 'auditor'], write: ['risk_officer', 'asset_manager', 'security_officer'] },
-  architecture: { read: ['architect', 'project_manager', 'change_manager', 'asset_manager', 'auditor'], write: ['architect'] },
-  projects: { read: ['project_manager', 'architect', 'change_manager', 'auditor'], write: ['project_manager'] },
+  assets: { read: ['asset_manager', 'technician', 'service_desk', 'vendor_manager', 'risk_officer', 'security_officer', 'finance_manager', 'dc_manager', 'auditor'], write: ['asset_manager'] },
+  vendors: { read: ['vendor_manager', 'risk_officer', 'security_officer', 'asset_manager', 'finance_manager', 'accountant', 'dc_manager', 'executive', 'auditor'], write: ['vendor_manager', 'risk_officer'] },
+  risks: { read: ['risk_officer', 'security_officer', 'architect', 'project_manager', 'vendor_manager', 'bcm_manager', 'executive', 'auditor'], write: ['risk_officer', 'security_officer'] },
+  controls: { read: ['risk_officer', 'security_officer', 'executive', 'auditor'], write: ['risk_officer', 'security_officer'] },
+  continuity: { read: ['bcm_manager', 'risk_officer', 'security_officer', 'asset_manager', 'technician', 'incident_manager', 'dc_manager', 'executive', 'auditor'], write: ['bcm_manager', 'risk_officer'] },
+  architecture: { read: ['architect', 'project_manager', 'change_manager', 'asset_manager', 'executive', 'auditor'], write: ['architect'] },
+  projects: { read: ['project_manager', 'architect', 'change_manager', 'finance_manager', 'executive', 'auditor'], write: ['project_manager'] },
   sprints: { read: ['project_manager', 'architect', 'technician'], write: ['project_manager'] },
   backlog: { read: ['project_manager', 'architect', 'technician'], write: ['project_manager', 'technician', 'architect'] },
+  // Modul deklaratif (shared/modules.mjs)
+  ...Object.fromEntries(Object.entries(MODULE_DEFS).map(([k, d]) => [k, d.permissions])),
 };
 
 export const RESOURCE_KEYS = Object.keys(DEFAULT_PERMISSIONS);
@@ -45,8 +48,9 @@ export const PAGES = {
   dashboard: ALL,
   'my-work': ALL,
   portal: ALL,
-  reports: ['service_desk', 'incident_manager', 'problem_manager', 'change_manager', 'risk_officer', 'security_officer', 'auditor'],
-  compliance: ['risk_officer', 'security_officer', 'auditor'],
+  kpi: ['executive', 'service_desk', 'incident_manager', 'problem_manager', 'change_manager', 'risk_officer', 'security_officer', 'auditor', 'finance_manager', 'dc_manager', 'bcm_manager', 'asset_manager', 'vendor_manager'],
+  reports: ['service_desk', 'incident_manager', 'problem_manager', 'change_manager', 'risk_officer', 'security_officer', 'executive', 'auditor'],
+  compliance: ['risk_officer', 'security_officer', 'executive', 'auditor'],
   audit: ['auditor', 'risk_officer', 'security_officer'],
   users: ['admin'],
   access: ['admin'],
@@ -56,13 +60,18 @@ export const PAGES = {
 const uniq = (a) => [...new Set(a)];
 const clean = (roles) => (Array.isArray(roles) ? uniq(roles.filter((r) => r === '*' || ROLE_KEYS.includes(r))) : null);
 
+/** Modul yang di-grant ke tenant: daftar eksplisit dari operator platform, atau default paket. */
+export const grantedModules = (tenant = {}) => (tenant.modules?.length ? tenant.modules : PLANS[tenant.plan]?.modules);
+/** Batas pengguna aktif: override operator, atau default paket (null = tanpa batas). */
+export const userLimit = (tenant = {}) => (tenant.maxUsers != null && tenant.maxUsers !== '' ? Number(tenant.maxUsers) || null : PLANS[tenant.plan]?.maxUsers ?? null);
+
 /**
- * Matriks efektif untuk sebuah tenant: default ⊕ override tenant ⊖ modul di luar paket langganan.
+ * Matriks efektif untuk sebuah tenant: default ⊕ override tenant ⊖ modul yang tidak di-grant.
  * write selalu menyiratkan read.
  */
 export function effectivePermissions(tenant = {}) {
   const overrides = tenant.permissions || {};
-  const planModules = PLANS[tenant.plan]?.modules;
+  const planModules = grantedModules(tenant);
   const out = {};
   for (const [res, def] of Object.entries(DEFAULT_PERMISSIONS)) {
     const o = overrides[res] || {};

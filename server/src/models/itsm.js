@@ -110,14 +110,6 @@ const problemSchema = new Schema({
 problemSchema.plugin(basePlugin);
 
 // Change Enablement (RFC + CAB)
-const approvalSchema = new Schema({
-  approver: ref('User'),
-  approverName: String,
-  decision: { type: String, enum: ['approved', 'rejected'] },
-  comment: String,
-  at: { type: Date, default: Date.now },
-});
-
 const changeSchema = new Schema({
   title: { type: String, required: [true, 'Judul wajib diisi'], trim: true },
   description: String,
@@ -142,7 +134,6 @@ const changeSchema = new Schema({
   backoutPlan: String,
   testPlan: String,
   securityImpactAssessment: String,
-  approvals: [approvalSchema],
   requiredApprovals: { type: Number, default: 1 },
   outcome: { type: String, enum: ['', 'successful', 'successful_with_issues', 'failed', 'backed_out'] },
   pirNotes: String, // Post Implementation Review

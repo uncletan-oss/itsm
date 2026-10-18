@@ -3,7 +3,7 @@
  * Hak akses (read/write) berasal dari matriks di shared/permissions.mjs (+ override per tenant).
  * Router generik (routes/resource.js) membangun endpoint CRUD + transition + comment dari sini.
  */
-const { workflows } = require('./services/workflows');
+const { workflows, fromSpec } = require('./services/workflows');
 const { calculatePriority, riskScore } = require('./services/priority');
 const { computeDueDates } = require('./services/sla');
 const SlaPolicy = require('./models/SlaPolicy');
@@ -11,6 +11,10 @@ const { Incident, ServiceRequest, Problem, Change } = require('./models/itsm');
 const { Service, ConfigurationItem, Asset, Vendor } = require('./models/assets');
 const { Risk, Control, ContinuityPlan, ArchitectureComponent, KnowledgeArticle } = require('./models/governance');
 const { Project, Sprint, BacklogItem } = require('./models/projects');
+const dynamicModels = require('./models/dynamic');
+const { MODULE_DEFS } = require('../../shared/modules.mjs');
+const { hasRole } = require('../../shared/roles.mjs');
+const { APPROVALS } = require('../../shared/approvals.mjs');
 
 const isRequesterOnly = (u) => !u.roles.some((r) => r !== 'requester');
 const same = (a, b) => a && b && String(a._id || a) === String(b._id || b);
@@ -43,7 +47,7 @@ const ownerTransitions = (allowed) => (user, doc, to) =>
 
 const ticketPopulate = ['requester', 'assignee', 'service', 'configurationItem'];
 
-module.exports = {
+const registry = {
   incidents: {
     model: Incident,
     prefix: 'INC',
@@ -72,9 +76,7 @@ module.exports = {
     search: ['number', 'title', 'description'],
     populate: [...ticketPopulate, 'approver'],
     scope: ownTickets,
-    canTransition: (user, doc, to) =>
-      ownerTransitions(['cancelled', 'closed'])(user, doc, to) ||
-      (['approved', 'rejected'].includes(to) && same(doc.approver, user)),
+    canTransition: ownerTransitions(['cancelled', 'closed']),
     beforeCreate: async (doc, user) => {
       if (isRequesterOnly(user)) doc.requester = user._id;
       doc.requester = doc.requester || user._id;
@@ -216,3 +218,43 @@ module.exports = {
   },
 };
 
+// Workflow end-to-end untuk modul yang sebelumnya berstatus bebas
+registry.vendors.workflow = workflows.vendor;
+registry.assets.workflow = workflows.asset;
+registry['configuration-items'].workflow = workflows.configurationItem;
+registry.continuity.workflow = workflows.continuity;
+registry.architecture.workflow = workflows.architecture;
+registry['configuration-items'].populate.push('rack');
+
+// Modul deklaratif (shared/modules.mjs)
+const userRefs = (def) => def.fields.filter((f) => f.type === 'user' || (f.type === 'readonly' && f.store === 'user')).map((f) => f.key);
+for (const [key, def] of Object.entries(MODULE_DEFS)) {
+  const owners = ['requester', 'createdBy', 'owner'];
+  registry[key] = {
+    model: dynamicModels[key],
+    prefix: def.prefix,
+    label: def.label,
+    workflow: def.workflow ? fromSpec(def.workflow) : undefined,
+    search: def.search,
+    defaultSort: def.defaultSort,
+    populate: def.fields.filter((f) => ['ref', 'refs', 'user'].includes(f.type) || (f.type === 'readonly' && f.store === 'user')).map((f) => f.key),
+    scope: def.ownScope ? (u) => (isRequesterOnly(u) ? { createdBy: u._id } : {}) : undefined,
+    // Pemilik record boleh melakukan langkah tertentu; peran khusus (mis. verifikator) boleh melakukan langkahnya
+    canTransition: def.workflow
+      ? (user, doc, to) =>
+          (def.workflow.canOwner?.includes(to) && owners.some((f) => same(doc[f], user))) ||
+          (!!def.workflow.roles?.[to] && hasRole(user, def.workflow.roles[to]))
+      : undefined,
+    beforeSave: def.compute ? (doc) => def.compute(doc) : undefined,
+    userRefs: userRefs(def),
+    // Field yang boleh diisi pelaku langkah walau tanpa hak ubah modul (mis. bukti remediasi oleh pemilik temuan)
+    transitionFieldsFor: (to) => def.transitionFields?.[to] || def.workflow?.required?.[to]?.map(([f]) => f) || [],
+  };
+}
+
+// Kebijakan persetujuan dilekatkan ke workflow (tanpa memodifikasi objek bersama)
+for (const [key, policy] of Object.entries(APPROVALS)) {
+  if (registry[key]?.workflow) registry[key] = { ...registry[key], approval: policy, workflow: { ...registry[key].workflow, approval: policy } };
+}
+
+module.exports = registry;

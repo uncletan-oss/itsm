@@ -13,6 +13,17 @@ const activitySchema = new Schema(
   { _id: true }
 );
 
+// Jejak keputusan persetujuan multi-tahap (shared/approvals.mjs)
+const approvalSchema = new Schema({
+  step: String,
+  decision: { type: String, enum: ['approved', 'rejected'] },
+  comment: String,
+  approver: { type: Schema.Types.ObjectId, ref: 'User' },
+  approverName: String,
+  round: { type: Number, default: 1 },
+  at: { type: Date, default: Date.now },
+});
+
 /** Setiap dokumen milik satu tenant — dasar isolasi data multi-tenant. */
 function tenantPlugin(schema) {
   schema.add({ tenant: { type: Schema.Types.ObjectId, ref: 'Tenant', required: true, index: true } });
@@ -24,6 +35,8 @@ function basePlugin(schema) {
   schema.add({
     number: { type: String },
     activities: [activitySchema],
+    approvals: [approvalSchema],
+    approvalRound: { type: Number, default: 0 },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User' },
     updatedBy: { type: Schema.Types.ObjectId, ref: 'User' },
   });
@@ -35,4 +48,4 @@ function basePlugin(schema) {
 
 const ref = (model) => ({ type: Schema.Types.ObjectId, ref: model });
 
-module.exports = { activitySchema, basePlugin, tenantPlugin, ref };
+module.exports = { activitySchema, approvalSchema, basePlugin, tenantPlugin, ref };

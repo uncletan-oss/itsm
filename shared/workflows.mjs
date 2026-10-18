@@ -48,17 +48,11 @@ const request = {
   },
   guards: {
     fulfilling: (d) => (d.requiresApproval && !d.approvedAt ? 'Permintaan ini memerlukan persetujuan terlebih dahulu' : null),
-    approved: (d, u) => {
-      if (same(d.requester, u) || same(d.createdBy, u)) return 'Segregation of duties: pemohon tidak boleh menyetujui permintaannya sendiri';
-      if (d.approver && !same(d.approver, u) && !hasRole(u, ['admin'])) return 'Hanya approver yang ditunjuk yang dapat menyetujui';
-      if (!d.approver && !hasRole(u, ['service_desk', 'change_manager', 'incident_manager'])) return 'Anda tidak memiliki wewenang menyetujui';
-      return null;
-    },
-    rejected: (d, u) => request.guards.approved(d, u),
     fulfilled: (d) => requireFields(d, [['fulfillmentNotes', 'Catatan pemenuhan']]),
   },
   onEnter: {
     approved: (d, u, now) => { d.approvedAt = now; d.approver = d.approver || u._id; },
+    pending_approval: (d) => { if (!d.requiresApproval) d.requiresApproval = true; },
     fulfilled: (d, u, now) => { d.resolvedAt = now; },
     closed: (d, u, now) => { d.closedAt = now; },
   },
@@ -127,7 +121,7 @@ const change = {
     closed: (d) => requireFields(d, [['outcome', 'Hasil implementasi'], ['pirNotes', 'Catatan Post Implementation Review']]),
   },
   onEnter: {
-    cab_review: (d) => { d.approvals = []; d.requiredApprovals = d.risk === 'high' ? 2 : 1; },
+    cab_review: (d) => { d.requiredApprovals = d.risk === 'high' ? 2 : 1; },
     implementing: (d, u, now) => { d.actualStart = now; },
     review: (d, u, now) => { d.actualEnd = now; },
     closed: (d, u, now) => { d.closedAt = now; },
@@ -160,12 +154,14 @@ const knowledge = {
 const risk = {
   transitions: {
     identified: ['assessed', 'closed'],
-    assessed: ['treating', 'monitoring', 'closed'],
-    treating: ['monitoring'],
+    assessed: ['treating', 'pending_approval', 'monitoring', 'closed'],
+    treating: ['monitoring', 'pending_approval'],
+    pending_approval: ['monitoring', 'assessed'],
     monitoring: ['treating', 'closed'],
     closed: ['identified'],
   },
   guards: {
+    pending_approval: (d) => (d.treatment !== 'accept' ? 'Persetujuan penerimaan risiko hanya untuk strategi "Terima"' : requireFields(d, [['acceptanceRationale', 'Alasan penerimaan risiko'], ['reviewDate', 'Tanggal review']])),
     assessed: (d) => requireFields(d, [['owner', 'Risk owner'], ['likelihood', 'Likelihood'], ['impact', 'Impact']]),
     treating: (d) => requireFields(d, [['treatment', 'Strategi penanganan'], ['treatmentPlan', 'Rencana penanganan']]),
     closed: (d) => (d.treatment === 'accept' || d.residualScore ? null : 'Isi residual risk atau terima risiko (accept) sebelum menutup'),
@@ -199,12 +195,92 @@ const sprint = {
   },
 };
 
-const workflows = { incident, request, problem, change, knowledge, risk, project, sprint };
+/**
+ * Bangun state machine dari spesifikasi deklaratif:
+ *  transitions, required {to: [[field,label]]}, roles {to: [peran]}, sod {to: [field user yang tidak boleh sama]},
+ *  stamp {to: field} (tanggal/aktor otomatis), viaEffect [status yang hanya diset efek sistem].
+ */
+export function fromSpec(spec) {
+  const guards = {};
+  const onEnter = {};
+  const targets = new Set(Object.values(spec.transitions).flat());
+  for (const to of targets) {
+    guards[to] = (d, u, ctx) => {
+      if (spec.viaEffect?.includes(to) && !ctx?.viaEffect) return 'Status ini diperbarui otomatis oleh sistem';
+      if (spec.roles?.[to] && !hasRole(u, spec.roles[to])) return `Hanya peran ${spec.roles[to].join(' / ')} yang dapat melakukan langkah ini`;
+      for (const f of spec.sod?.[to] || []) if (same(d[f], u)) return 'Segregation of duties: langkah ini harus dilakukan oleh orang lain';
+      return spec.required?.[to] ? requireFields(d, spec.required[to]) : null;
+    };
+    if (spec.stamp?.[to]) {
+      const f = spec.stamp[to];
+      onEnter[to] = (d, u, now) => { d[f] = f.endsWith('By') ? u._id : now; };
+    }
+  }
+  return { transitions: spec.transitions, guards, onEnter, canOwner: spec.canOwner };
+}
 
+// ---- Workflow end-to-end untuk modul yang sebelumnya hanya berupa status bebas ----
+const vendor = fromSpec({
+  transitions: {
+    prospect: ['due_diligence'], due_diligence: ['pending_approval', 'prospect'], pending_approval: ['active', 'rejected'], rejected: ['prospect'],
+    active: ['under_review', 'terminated'], under_review: ['active', 'terminated'], terminated: [],
+  },
+  required: {
+    pending_approval: [['dueDiligenceDate', 'Tanggal due diligence'], ['dueDiligenceResult', 'Hasil due diligence'], ['riskRating', 'Peringkat risiko']],
+    terminated: [['exitStrategy', 'Exit strategy']],
+  },
+});
+const vendorPending = vendor.guards.pending_approval;
+vendor.guards.pending_approval = (d, u, ctx) =>
+  vendorPending(d, u, ctx) ||
+  (d.dueDiligenceResult === 'failed' ? 'Vendor tidak lulus due diligence' : null) ||
+  (['critical', 'high'].includes(d.criticality) && !d.exitStrategy ? 'Vendor kritikal/tinggi wajib memiliki exit strategy' : null) ||
+  (d.dataLocation && !/indonesia/i.test(d.dataLocation) && !d.offshoreApproval ? 'Data di luar Indonesia: isi referensi persetujuan penempatan di luar negeri' : null);
+
+const asset = fromSpec({
+  transitions: {
+    requested: ['ordered'], ordered: ['in_stock'], in_stock: ['deployed', 'retired'], deployed: ['in_repair', 'in_stock', 'retired'],
+    in_repair: ['deployed', 'retired'], retired: ['pending_approval', 'in_stock'], pending_approval: ['disposed', 'retired'], disposed: [],
+  },
+  required: {
+    deployed: [['assignedTo', 'Pengguna / pemegang aset']],
+    pending_approval: [['disposalMethod', 'Metode disposal'], ['disposalCertificate', 'No. sertifikat sanitasi/pemusnahan']],
+  },
+  stamp: { disposed: 'disposalDate' },
+});
+
+const configurationItem = fromSpec({
+  transitions: { planned: ['in_build', 'active'], in_build: ['active'], active: ['maintenance', 'retired'], maintenance: ['active', 'retired'], retired: [] },
+  required: { active: [['owner', 'Pemilik CI'], ['environment', 'Environment']] },
+});
+
+const continuity = fromSpec({
+  transitions: {
+    draft: ['review'], review: ['pending_approval', 'draft'], pending_approval: ['approved', 'draft'], approved: ['needs_update', 'retired'],
+    tested: ['needs_update', 'retired'], needs_update: ['review'], retired: [],
+  },
+  required: { review: [['owner', 'Pemilik'], ['rtoHours', 'RTO'], ['rpoHours', 'RPO'], ['description', 'Ruang lingkup / prosedur']] },
+});
+
+const architecture = fromSpec({
+  transitions: { draft: ['review'], review: ['pending_approval', 'draft'], pending_approval: ['approved', 'draft'], approved: ['deprecated', 'review'], deprecated: [] },
+  required: { review: [['owner', 'Pemilik'], ['description', 'Deskripsi']] },
+});
+
+const workflows = { incident, request, problem, change, knowledge, risk, project, sprint, vendor, asset, configurationItem, continuity, architecture };
+
+/**
+ * Validasi transisi. Bila workflow memiliki kebijakan persetujuan (workflow.approval), keputusan
+ * keluar dari status persetujuan hanya boleh melalui mesin persetujuan (ctx.viaApproval).
+ */
 function checkTransition(workflow, doc, to, user, ctx) {
   const from = doc.status;
   const allowed = workflow.transitions[from] || [];
   if (!allowed.includes(to)) return `Transisi ${from} → ${to} tidak diizinkan`;
+  const a = workflow.approval;
+  if (a && from === a.status && [a.approved, a.rejected].includes(to) && !ctx?.viaApproval) {
+    return 'Keputusan diambil melalui panel persetujuan (Setujui / Tolak)';
+  }
   const guard = workflow.guards?.[to];
   return guard ? guard(doc, user, ctx) : null;
 }

@@ -7,6 +7,8 @@ const { nextNumber } = require('./models/Counter');
 const { Service, } = require('./models/assets');
 const { Control } = require('./models/governance');
 const { provisionTenant } = require('./services/provision');
+const { makeStore } = require('./services/records');
+const { seedExtended } = require('../../shared/seed-extra.mjs');
 const { PLATFORM_ROLE } = require('./constants');
 
 const PW = process.env.SEED_PASSWORD || 'Password123!';
@@ -27,6 +29,12 @@ const PEOPLE = [
   ['Putri Project Manager', 'pm', ['project_manager'], 'PMO'],
   ['Joko Vendor Manager', 'vendor', ['vendor_manager'], 'Pengadaan'],
   ['Wati Auditor', 'auditor', ['auditor'], 'Audit Intern'],
+  ['Fajar IT Controller', 'finance', ['finance_manager'], 'Keuangan TI'],
+  ['Nadia Akuntan', 'accountant', ['accountant'], 'Akuntansi'],
+  ['Tari Treasury', 'treasurer', ['treasurer'], 'Treasury'],
+  ['Bambang CIO', 'executive', ['executive'], 'Direksi'],
+  ['Doni DC Manager', 'dc', ['dc_manager'], 'Data Center'],
+  ['Sinta BCM Coordinator', 'bcm', ['bcm_manager'], 'Manajemen Risiko'],
   ['Andi Pengguna', 'user', ['requester'], 'Unit Bisnis'],
 ];
 
@@ -67,9 +75,9 @@ async function seedBank() {
   const vCloud = await make('vendors', {
     name: 'PT Awan Data Indonesia', category: 'cloud', criticality: 'critical', contractNumber: 'KTR/2025/014', contractStart: days(-300), contractEnd: days(60),
     dueDiligenceDate: days(-320), dueDiligenceResult: 'passed', certifications: ['ISO 27001', 'SOC 2 Type II'], dataLocation: 'Indonesia', rightToAudit: true,
-    exitStrategy: 'Migrasi ke DC on-premise dalam 90 hari; data diekspor terenkripsi.', riskRating: 'medium',
+    exitStrategy: 'Migrasi ke DC on-premise dalam 90 hari; data diekspor terenkripsi.', riskRating: 'medium', status: 'active',
   }, u.vendor);
-  const vSoft = await make('vendors', { name: 'CV Solusi Perangkat Lunak', category: 'software', criticality: 'high', contractEnd: days(200), dueDiligenceResult: 'passed_with_findings', dataLocation: 'Indonesia', riskRating: 'high' }, u.vendor);
+  const vSoft = await make('vendors', { name: 'CV Solusi Perangkat Lunak', category: 'software', criticality: 'high', contractEnd: days(200), dueDiligenceResult: 'passed_with_findings', dataLocation: 'Indonesia', riskRating: 'high', status: 'active', exitStrategy: 'Migrasi ke vendor alternatif' }, u.vendor);
 
   const svcCore = await make('services', { name: 'Core Banking', type: 'business', criticality: 'critical', owner: u.architect._id, availabilityTarget: 99.9, rtoHours: 2, rpoHours: 0.25, supportHours: '24x7' }, u.admin);
   const svcMobile = await make('services', { name: 'Mobile Banking', type: 'business', criticality: 'critical', availabilityTarget: 99.8, rtoHours: 2, rpoHours: 0.25, supportHours: '24x7', dependsOn: [svcCore._id] }, u.admin);
@@ -84,11 +92,11 @@ async function seedBank() {
 
   const ciDb = await make('configuration-items', {
     name: 'cbs-db-prod-01', ciType: 'database', environment: 'production', hostname: 'cbs-db-prod-01', ipAddress: '10.10.1.11', dataCenter: 'primary_dc',
-    hostingCountry: 'Indonesia', dataClassification: 'restricted', processesPersonalData: true, services: [svcCore._id], asset: astSrv._id, owner: u.tech._id,
+    hostingCountry: 'Indonesia', dataClassification: 'restricted', processesPersonalData: true, services: [svcCore._id], asset: astSrv._id, owner: u.tech._id, status: 'active',
   }, u.asset);
-  const ciApp = await make('configuration-items', { name: 'cbs-app-prod', ciType: 'application', environment: 'production', dataCenter: 'primary_dc', dataClassification: 'restricted', processesPersonalData: true, services: [svcCore._id], dependsOn: [ciDb._id] }, u.asset);
-  await make('configuration-items', { name: 'cbs-db-drc-01', ciType: 'database', environment: 'dr', dataCenter: 'drc', hostingCountry: 'Indonesia', dataClassification: 'restricted', services: [svcCore._id] }, u.asset);
-  await make('configuration-items', { name: 'mail-saas', ciType: 'cloud_service', environment: 'production', dataCenter: 'cloud', hostingCountry: 'Singapura', services: [svcEmail._id], vendor: vSoft._id }, u.asset);
+  const ciApp = await make('configuration-items', { status: 'active', owner: u.tech._id, name: 'cbs-app-prod', ciType: 'application', environment: 'production', dataCenter: 'primary_dc', dataClassification: 'restricted', processesPersonalData: true, services: [svcCore._id], dependsOn: [ciDb._id] }, u.asset);
+  await make('configuration-items', { status: 'active', name: 'cbs-db-drc-01', ciType: 'database', environment: 'dr', dataCenter: 'drc', hostingCountry: 'Indonesia', dataClassification: 'restricted', services: [svcCore._id] }, u.asset);
+  await make('configuration-items', { status: 'active', name: 'mail-saas', ciType: 'cloud_service', environment: 'production', dataCenter: 'cloud', hostingCountry: 'Singapura', services: [svcEmail._id], vendor: vSoft._id }, u.asset);
 
   const prb = await make('problems', { title: 'Degradasi performa core banking berulang saat awal hari', impact: 1, urgency: 2, service: svcCore._id, configurationItem: ciDb._id, assignee: u.incident._id, rcaMethod: '5_whys', status: 'investigating' }, u.incident);
 
@@ -142,10 +150,10 @@ async function seedBank() {
   ]) await make('knowledge', { title, category, content, articleType: 'how_to', audience: 'public', status: 'published', publishedAt: new Date() }, u.knowledge);
   await make('knowledge', { title: 'Workaround lambatnya transaksi teller', articleType: 'known_error', audience: 'it_only', relatedProblem: prb._id, content: 'Restart connection pool aplikasi.', status: 'review' }, u.incident);
 
-  await make('risks', { title: 'Ketergantungan pada penyedia cloud tunggal', category: 'third_party', nistFunction: 'GV', owner: u.risk._id, likelihood: 3, impact: 4, existingControls: 'Kontrak dengan SLA & right-to-audit', treatment: 'mitigate', relatedVendor: vCloud._id, status: 'assessed' }, u.risk);
-  await make('risks', { title: 'Ransomware pada server produksi', category: 'cyber_security', nistFunction: 'PR', owner: u.ciso._id, likelihood: 3, impact: 5, treatment: 'mitigate', treatmentPlan: 'EDR, immutable backup, segmentasi jaringan', residualLikelihood: 2, residualImpact: 4, status: 'treating' }, u.ciso);
-  await make('risks', { title: 'Data pribadi email disimpan di luar Indonesia', category: 'data_privacy', likelihood: 2, impact: 4, owner: u.risk._id }, u.risk);
-  await make('continuity', { name: 'DRP Core Banking', planType: 'drp', status: 'tested', owner: u.tech._id, services: [svcCore._id], rtoHours: 2, rpoHours: 0.25, drSite: 'DRC Surabaya', lastTestDate: days(-200), lastTestResult: 'partial', testFindings: 'Replikasi tertinggal 25 menit', nextTestDate: days(-15) }, u.risk);
+  const riskCloud = await make('risks', { title: 'Ketergantungan pada penyedia cloud tunggal', category: 'third_party', nistFunction: 'GV', owner: u.risk._id, likelihood: 3, impact: 4, existingControls: 'Kontrak dengan SLA & right-to-audit', treatment: 'mitigate', relatedVendor: vCloud._id, status: 'assessed' }, u.risk);
+  const riskRansom = await make('risks', { title: 'Ransomware pada server produksi', category: 'cyber_security', nistFunction: 'PR', owner: u.ciso._id, likelihood: 3, impact: 5, treatment: 'mitigate', treatmentPlan: 'EDR, immutable backup, segmentasi jaringan', residualLikelihood: 2, residualImpact: 4, status: 'treating' }, u.ciso);
+  const riskData = await make('risks', { title: 'Data pribadi email disimpan di luar Indonesia', category: 'data_privacy', likelihood: 2, impact: 4, owner: u.risk._id }, u.risk);
+  const plan = await make('continuity', { name: 'DRP Core Banking', planType: 'drp', status: 'tested', owner: u.tech._id, services: [svcCore._id], rtoHours: 2, rpoHours: 0.25, drSite: 'DRC Surabaya', lastTestDate: days(-200), lastTestResult: 'partial', testFindings: 'Replikasi tertinggal 25 menit', nextTestDate: days(-15) }, u.risk);
   await make('architecture', { name: 'Core Banking System', domain: 'application', buildingBlockType: 'sbb', admPhase: 'C', state: 'baseline', lifecycle: 'migrate', status: 'approved', relatedServices: [svcCore._id] }, u.architect);
   await make('architecture', { name: 'Platform API Gateway', domain: 'technology', buildingBlockType: 'abb', admPhase: 'D', state: 'target', lifecycle: 'invest', status: 'review' }, u.architect);
   const prj = await make('projects', {
@@ -159,6 +167,9 @@ async function seedBank() {
   }
   await make('backlog', { title: 'Migrasi modul deposito', storyPoints: 13, itemType: 'epic', project: prj._id }, u.pm);
   await assess(tenant, u.risk, ['SM-INC', 'SM-CHG', 'SM-REQ', 'SM-ITAM', 'GV.RR', 'ID.AM', 'RS.MA', 'A.8.15', 'A.8.32', 'PADK-OPS', 'PADK-3P', 'TI-3P', 'TI-AUD'], ['SM-PRB', 'SM-SCON', 'ID.RA', 'PADK-RSK', 'PADK-BCP', 'TI-DRP', 'PDP-05', 'A.5.19']);
+  // Modul lanjutan (keuangan, GRC & assurance, DCIM, BCM/DR, perencanaan) — data bersama dengan demo
+  const store = makeStore({ tenant, user: u.admin, ip: 'seed' }, resources);
+  await seedExtended(store, { u, refs: { vCloud, vSoft, svcCore, svcMobile, svcEmail, ciDb, ciApp, plan, project: prj, riskCloud, riskRansom, riskData } });
   return tenant;
 }
 

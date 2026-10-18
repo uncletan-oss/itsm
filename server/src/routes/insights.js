@@ -4,7 +4,11 @@ const { asyncHandler } = require('../middleware/error');
 const { hasRole, pageGuard } = require('../middleware/auth');
 const User = require('../models/User');
 const { computeDashboard, computeReports, computeMyWork } = require('../../../shared/insights.mjs');
+const { computeKpi } = require('../../../shared/kpi.mjs');
 
+const { APPROVALS } = require('../../../shared/approvals.mjs');
+
+const APPROVAL_RESOURCES = Object.keys(APPROVALS);
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const isRequesterOnly = (u) => !u.roles.some((r) => r !== 'requester');
 
@@ -51,11 +55,25 @@ module.exports = function buildInsightsRouter(registry) {
     })
   );
 
+  // Dashboard KPI lintas domain: tren 6 bulan, keuangan, GRC, DCIM, BCM — hanya untuk data yang boleh dibaca user
+  router.get(
+    '/kpi',
+    pageGuard('kpi'),
+    asyncHandler(async (req, res) => {
+      const period = Math.min(Math.max(Number(req.query.months) || 6, 3), 12);
+      const since = new Date(Date.now() - (period + 1) * 31 * 864e5);
+      const recentOrOpen = () => ({ $or: [{ createdAt: { $gte: since } }, { updatedAt: { $gte: since } }, { status: { $nin: ['closed', 'cancelled'] } }] });
+      const data = await loadAll(req, ['incidents', 'changes', 'requests', 'problems'], recentOrOpen);
+      Object.assign(data, await loadAll(req, ['budgets', 'invoices', 'payments', 'risks', 'controls', 'findings', 'risk-actions', 'control-tests', 'datacenters', 'racks', 'dc-access', 'continuity', 'bia', 'dr-tests', 'services', 'assets', 'vendors', 'contracts']));
+      res.json(computeKpi(data, { period }));
+    })
+  );
+
   router.get(
     '/my-work',
     asyncHandler(async (req, res) => {
-      const data = await loadAll(req, ['incidents', 'requests', 'problems', 'changes', 'backlog', 'risks', 'knowledge'], (n) => ({
-        status: { $nin: ['closed', 'cancelled', 'done', 'published', 'retired', 'rejected'] },
+      const data = await loadAll(req, ['incidents', 'requests', 'problems', 'changes', 'backlog', 'risks', 'knowledge', ...APPROVAL_RESOURCES, 'risk-actions', 'findings'], (n) => ({
+        status: { $nin: ['closed', 'cancelled', 'done', 'published', 'retired', 'rejected', 'paid', 'reconciled', 'verified', 'disposed', 'terminated', 'expired', 'posted', 'reversed'] },
         ...(registry[n].scope ? registry[n].scope(req.user) : {}),
       }));
       res.json(computeMyWork(data, req.user, { hasRole, canRead: (n) => !!data[n] }));

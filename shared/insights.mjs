@@ -2,6 +2,8 @@
  * Perhitungan dashboard, laporan & "Pekerjaan Saya" dari array dokumen (pure, tanpa I/O).
  * Dipakai server (dokumen lean per tenant) dan backend demo di browser.
  */
+import { APPROVALS, approvalError, approvalProgress } from './approvals.mjs';
+
 const DAY = 864e5;
 const t = (v) => (v ? new Date(v).getTime() : null);
 const id = (v) => (v && typeof v === 'object' ? String(v._id) : v ? String(v) : null);
@@ -16,6 +18,8 @@ export const OPEN = {
   backlog: ['backlog', 'todo', 'in_progress', 'review'],
   risks: ['identified', 'assessed', 'treating', 'monitoring'],
   knowledge: ['draft', 'review'],
+  'risk-actions': ['open', 'in_progress'],
+  findings: ['open', 'action_plan', 'in_remediation'],
 };
 
 const brief = (resource, d, userName) => ({
@@ -154,19 +158,17 @@ export function computeMyWork(data, user, { hasRole, canRead }) {
   add('changes', data.changes);
   add('backlog', data.backlog);
   add('risks', data.risks, 'owner');
+  add('risk-actions', data['risk-actions'], 'owner');
+  add('findings', data.findings, 'owner');
 
+  // Antrean persetujuan generik: semua record yang tahap persetujuan saat ini dapat diputuskan user
   const approvals = [];
-  if (canRead('changes') && hasRole(user, ['cab_member', 'change_manager'])) {
-    for (const c of data.changes || []) {
-      if (c.status !== 'cab_review') continue;
-      if ([c.requester, c.createdBy, c.assignee].some((u) => same(u, user._id))) continue;
-      if ((c.approvals || []).some((a) => same(a.approver, user._id))) continue;
-      approvals.push({ ...brief('changes', c), kind: 'CAB' });
+  for (const [res, policy] of Object.entries(APPROVALS)) {
+    for (const d of data[res] || []) {
+      if (d.status !== policy.status || approvalError(policy, d, user)) continue;
+      const step = approvalProgress(policy, d).current;
+      approvals.push({ ...brief(res, d), kind: `${policy.label} · ${step.name}`, amount: d.total ?? d.amount ?? d.value });
     }
-  }
-  for (const r of data.requests || []) {
-    if (r.status !== 'pending_approval' || same(r.requester, user._id) || same(r.createdBy, user._id)) continue;
-    if (same(r.approver, user._id) || (!r.approver && hasRole(user, ['service_desk']))) approvals.push({ ...brief('requests', r), kind: 'Permintaan' });
   }
   if (canRead('knowledge') && hasRole(user, ['knowledge_manager'])) {
     for (const k of data.knowledge || []) {
