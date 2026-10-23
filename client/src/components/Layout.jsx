@@ -4,11 +4,12 @@ import { api, DEMO } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { MODULES, NAV_GROUPS } from '../config/modules.js';
 import { publicHref } from '../links.js';
+import { useCart } from '../cart.js';
 import Icon from './Icon.jsx';
 import { Modal, initials, usePopover, useTheme, useToast } from './ui.jsx';
 import { fmtDateTime } from './format.jsx';
 
-const QUICK_CREATE = ['incidents', 'requests', 'changes', 'purchase-orders', 'invoices', 'risks', 'findings', 'dc-access', 'initiatives'];
+const QUICK_CREATE = ['incidents', 'requests', 'changes', 'requisitions', 'purchase-orders', 'invoices', 'risks', 'findings', 'dc-access', 'initiatives'];
 
 /** Menu dibangun dari matriks hak akses efektif: tiap peran hanya melihat modul yang boleh ia baca. */
 function useNav() {
@@ -24,9 +25,15 @@ function useNav() {
     },
     ...NAV_GROUPS.map((g) => ({
       title: g,
-      items: Object.entries(MODULES)
-        .filter(([k, m]) => m.group === g && (can(k) || (hasRole('admin') && !enabled(k))))
-        .map(([k, m]) => ({ to: `/m/${k}`, label: m.plural, icon: m.icon, locked: !enabled(k) })),
+      items: [
+        // Etalase belanja untuk semua pengguna yang boleh mengajukan PR
+        g === 'E-Procurement' && enabled('catalog-items') && can('requisitions', 'create') && { to: '/catalog', label: 'Belanja E-Katalog', icon: 'cart', badge: 'cart' },
+        ...Object.entries(MODULES)
+          .filter(([k, m]) => m.group === g && (can(k) || (hasRole('admin') && !enabled(k))))
+          // Pembeli cukup melihat etalase; daftar item katalog untuk pengelola (procurement) & pengawas
+          .filter(([k]) => k !== 'catalog-items' || can(k, 'write') || !can('requisitions', 'create') || hasRole('auditor', 'finance_manager', 'architect'))
+          .map(([k, m]) => ({ to: `/m/${k}`, label: k === 'catalog-items' ? 'Kelola E-Katalog' : m.plural, icon: m.icon, locked: !enabled(k) })),
+      ].filter(Boolean),
     })),
     {
       title: 'Analitik & Kepatuhan',
@@ -56,6 +63,7 @@ export default function Layout() {
   const [workCount, setWorkCount] = useState(0);
   const location = useLocation();
   const nav = useNav();
+  const cart = useCart(tenant?.slug);
 
   useEffect(() => setOpen(false), [location.pathname]);
   useEffect(() => {
@@ -98,6 +106,7 @@ export default function Layout() {
                   <span>{it.label}</span>
                   {it.locked && <Icon name="lock" size="sm" className="lock" />}
                   {it.badge === 'work' && workCount > 0 && <span className="count">{workCount}</span>}
+                  {it.badge === 'cart' && cart.count > 0 && <span className="count">{cart.count}</span>}
                 </NavLink>
               ))}
             </div>

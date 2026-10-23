@@ -28,7 +28,7 @@ Workspace demo (password semua akun `Password123!`):
 - **Login** memakai *kode workspace* + email + password. Email unik per tenant (orang yang sama bisa punya akun di beberapa tenant).
 - **Pendaftaran mandiri** (`/daftar`) membuat tenant trial 14 hari + admin + SLA P1–P4 + katalog dasar + kontrol kepatuhan sesuai industri.
 - **Paket langganan** (`shared/plans.mjs`) membatasi modul dan jumlah pengguna aktif:
-  Starter (ITSM inti, 15 pengguna) · Professional (+ GRC, 100 pengguna) · Enterprise (+ arsitektur & proyek, tanpa batas).
+  Starter (ITSM inti, 15 pengguna) · Professional (+ GRC, 100 pengguna) · Enterprise (+ DCIM, e-procurement, keuangan TI, arsitektur & proyek, tanpa batas).
   Modul di luar paket tampil terkunci untuk admin dan ditolak `403` oleh server.
 - **Operator platform** (peran `platform_admin`, tanpa tenant; login dengan workspace kosong) mengelola tenant di konsol
   tersendiri — tanpa akses ke data operasional tenant:
@@ -53,6 +53,9 @@ Aturan lintas-record (`shared/effects.mjs`) dijalankan identik di server & demo.
 | Vendor | prospek → due diligence → persetujuan → aktif → review → diputus | Procurement → Risk → CISO (kritikal) → Eksekutif (data offshore); exit strategy & persetujuan offshore wajib |
 | Kontrak | draft → review legal → persetujuan → aktif → review perpanjangan → berakhir/diputus | Vendor Mgr → Risk → Eksekutif (≥ Rp 1 M / alih daya material) |
 | Anggaran | draft → persetujuan → aktif → ditutup | IT Controller → CIO; komitmen & realisasi terhitung otomatis |
+| E-katalog | draft → persetujuan → tayang ⇄ revisi harga / ditangguhkan → ditarik | Controller (kewajaran harga) → Arsitek (standar teknologi); wajib **kontrak payung aktif** milik penyedia yang sama & penyedia terverifikasi |
+| Permintaan pembelian (PR) | draft → persetujuan → disetujui → **dalam pengadaan (otomatis)** → selesai | atasan pemohon → Procurement → Controller (≥ Rp 100 jt) → CIO (≥ Rp 1 M); **harga dikunci ke katalog**, minimum order, cek anggaran; item katalog → **PO otomatis per penyedia**, item non-katalog → **RFQ/tender otomatis** (metode dari HPS) |
+| RFQ / tender | draft → diumumkan → pembukaan & evaluasi → usulan pemenang → pemenang ditetapkan (atau gagal → tender ulang) | min. 3 penyedia aktif (penunjukan langsung wajib justifikasi), batas waktu, HPS; penawaran hanya dari undangan & sebelum batas waktu, **harga terkunci** setelah dibuka; skor harga–teknis berbobot, gugur bila di atas HPS/teknis < ambang; ketua panitia → Controller → CIO (≥ Rp 500 jt / penunjukan langsung); **PO otomatis** & penghematan vs HPS |
 | PO | draft → persetujuan → disetujui → dipesan → diterima (BAST) → ditutup | Procurement → Controller → CIO (≥ Rp 500 jt); **kontrol ketersediaan anggaran** |
 | Tagihan | diterima → terverifikasi (**3-way match**) → persetujuan → disetujui → lunas | AP → Controller (≥ Rp 100 jt); **jurnal otomatis** (beban/aset + PPN masukan / utang usaha) |
 | Pembayaran | draft → persetujuan → disetujui → dieksekusi (treasury) → direkonsiliasi | **maker-checker**; tidak boleh melebihi sisa tagihan; jurnal & status lunas otomatis |
@@ -76,7 +79,8 @@ Aturan lintas-record (`shared/effects.mjs`) dijalankan identik di server & demo.
 Menu **Dashboard KPI** (eksekutif & manajer) menampilkan tren bulanan (3/6/12 bulan) dengan sparkline & delta:
 MTTR, kepatuhan SLA, keberhasilan change, belanja TI, anggaran vs komitmen vs realisasi, aging utang usaha,
 heatmap risiko inheren & residual 5×5, efektivitas kontrol, temuan & mitigasi terlambat, utilisasi daya/ruang DC,
-hasil uji DR (RTO aktual vs target), dan cakupan BIA layanan kritikal. Data mengikuti hak baca masing-masing peran.
+hasil uji DR (RTO aktual vs target), cakupan BIA layanan kritikal, serta **E-Procurement**: porsi belanja e-katalog,
+penghematan tender vs HPS, porsi pengadaan kompetitif, rata-rata penawaran per RFQ, siklus PR, dan penyedia terbesar. Data mengikuti hak baca masing-masing peran.
 
 ## Menu sesuai peran (RBAC)
 
@@ -112,6 +116,7 @@ design system "Sapphire & Champagne" (navy + champagne gold, Plus Jakarta Sans, 
 | | Service Catalog (kritikalitas, target availability, RTO/RPO), SLA Policy | ITIL 4, ISO 20000 |
 | Aset & Konfigurasi | CMDB (relasi CI, lokasi DC/DRC, **negara penempatan**, klasifikasi data, data pribadi) | ITIL 4, PADK 1/2026, PP 71/2019 |
 | | IT Asset Management (siklus hidup, lisensi, garansi, disposal aman NIST SP 800-88) | ISO/IEC 19770-1 |
+| E-Procurement | Belanja E-Katalog (etalase + keranjang → PR), Kelola E-Katalog (harga kontrak, masa berlaku, TKDN, lead time), Permintaan Pembelian, RFQ & Tender, Penawaran Vendor (tabel perbandingan & skoring otomatis), Purchase Order | Prinsip pengadaan barang/jasa (Perpres 16/2018 jo. 12/2021: HPS, e-katalog, metode pemilihan), POJK 11/2022 (penyedia jasa TI) |
 | Tata Kelola & Risiko | Vendor / Penyedia Jasa TI (due diligence, right-to-audit, lokasi data, persetujuan offshore, exit strategy) | POJK 11/2022, PADK 1/2026, NIST GV.SC |
 | | Risk Register 5×5 (inheren & residual, dipetakan ke fungsi NIST CSF) | ISO 31000, NIST SP 800-30 |
 | | Kontrol Kepatuhan + skor per framework | Semua framework aktif |
@@ -251,6 +256,7 @@ findings, bia, continuity, dr-tests, datacenters, racks, dc-access, initiatives,
 - SLA berbasis jam kerja/kalender libur (saat ini kalender 24×7)
 - Notifikasi email/chat dan eskalasi otomatis (notifikasi in-app sudah ada)
 - Penagihan (billing) otomatis & self-service upgrade paket
+- Portal penyedia (vendor self-service) untuk registrasi & unggah penawaran terenkripsi; saat ini penawaran dicatat oleh procurement
 - Integrasi ERP/core accounting & bank (H2H) untuk eksekusi pembayaran; COA & tarif PPN perlu disesuaikan (`shared/finance.mjs`)
 - Integrasi sensor DCIM (daya/suhu real-time); saat ini utilisasi diisi manual per rak
 - SSO (SAML/OIDC) dan MFA

@@ -63,6 +63,30 @@ export const APPROVALS = {
     status: 'pending_approval', approved: 'active', rejected: 'rejected', sod: ['createdBy'], label: 'Pengesahan anggaran',
     steps: [{ name: 'IT Controller', roles: ['finance_manager'] }, { name: 'CIO / Direksi', roles: ['executive'] }],
   },
+  'catalog-items': {
+    status: 'pending_approval', approved: 'published', rejected: 'rejected', sod: ['createdBy'], label: 'Penayangan item e-katalog',
+    steps: [
+      { name: 'IT Controller (kewajaran harga)', roles: ['finance_manager'] },
+      { name: 'Enterprise Architect (standar teknologi)', roles: ['architect'], when: (d) => ['hardware', 'software', 'cloud', 'network'].includes(d.category) },
+    ],
+  },
+  requisitions: {
+    status: 'pending_approval', approved: 'approved', rejected: 'rejected', sod: ['requester', 'createdBy'], label: 'Persetujuan permintaan pembelian',
+    steps: [
+      { name: 'Atasan pemohon', field: 'approver', when: (d) => !!d.approver },
+      { name: 'Procurement (kebutuhan & anggaran)', roles: ['vendor_manager'] },
+      { name: 'IT Controller (≥ Rp 100 jt)', roles: ['finance_manager'], when: (d) => Number(d.subtotal || 0) >= 1e8 },
+      { name: 'CIO / Direksi (≥ Rp 1 M)', roles: ['executive'], when: (d) => Number(d.subtotal || 0) >= 1e9 },
+    ],
+  },
+  rfqs: {
+    status: 'pending_approval', approved: 'awarded', rejected: 'evaluation', sod: ['createdBy'], label: 'Penetapan pemenang',
+    steps: [
+      { name: 'Ketua panitia', field: 'chairman', when: (d) => !!d.chairman },
+      { name: 'IT Controller (kesesuaian anggaran)', roles: ['finance_manager'] },
+      { name: 'CIO / Direksi (≥ Rp 500 jt / penunjukan langsung)', roles: ['executive'], when: (d) => Number(d.recommendedAmount || 0) >= 5e8 || d.method === 'direct' },
+    ],
+  },
   'purchase-orders': {
     status: 'pending_approval', approved: 'approved', rejected: 'rejected', sod: ['createdBy', 'requester'], label: 'Persetujuan PO',
     steps: [

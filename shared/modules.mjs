@@ -10,6 +10,8 @@ import { riskScore } from './priority.mjs';
 
 const o = (spec) => spec.split('|').map((p) => { const [v, l] = p.split(':'); return [v, l ?? v]; });
 const SEV = o('critical:Kritis|high:Tinggi|medium:Sedang|low:Rendah');
+const CAT_CATEGORY = o('hardware:Perangkat keras|software:Lisensi perangkat lunak|cloud:Layanan cloud|network:Jaringan & keamanan|services:Jasa TI|peripheral:Periferal & aksesori|consumable:Habis pakai');
+const RFQ_METHOD = o('rfq:Permintaan penawaran (RFQ)|limited_tender:Tender terbatas / seleksi|open_tender:Tender terbuka|direct:Penunjukan langsung');
 const LEVEL5 = o('1:1 - Sangat rendah|2:2 - Rendah|3:3 - Sedang|4:4 - Tinggi|5:5 - Sangat tinggi');
 const sumLines = (lines = [], fn) => round2(lines.reduce((s, l) => s + fn(l), 0));
 const withTax = (doc, base) => {
@@ -89,8 +91,191 @@ export const MODULE_DEFS = {
     },
     compute: (d) => { d.availableAmount = round2((d.amount || 0) - (d.committedAmount || 0)); },
   },
+  // ======================= E-Procurement =======================
+  'catalog-items': {
+    model: 'CatalogItem', prefix: 'CAT', label: 'Item Katalog', plural: 'E-Katalog', group: 'E-Procurement', icon: 'grid', titleField: 'name',
+    description: 'Katalog elektronik barang/jasa TI berdasarkan kontrak payung (framework agreement): harga terkunci, validasi harga oleh Controller & standar teknologi oleh arsitek sebelum tayang.',
+    columns: ['number', 'name', 'category', 'vendor', 'unitPrice', 'unit', 'validUntil', 'status'],
+    search: ['number', 'name', 'sku', 'specification'],
+    permissions: { read: ['*'], write: ['vendor_manager'] },
+    fields: [
+      { key: 'name', label: 'Nama barang/jasa', type: 'text', required: true, full: true },
+      { key: 'sku', label: 'SKU / kode katalog', type: 'text' },
+      { key: 'category', label: 'Kategori', type: 'select', options: CAT_CATEGORY, default: 'hardware' },
+      { key: 'vendor', label: 'Penyedia', type: 'ref', resource: 'vendors', required: true },
+      { key: 'contract', label: 'Kontrak payung', type: 'ref', resource: 'contracts' },
+      { key: 'unit', label: 'Satuan', type: 'text', default: 'unit' },
+      { key: 'unitPrice', label: 'Harga satuan kontrak (Rp, sebelum PPN)', type: 'number', required: true },
+      { key: 'minOrderQty', label: 'Minimum pemesanan', type: 'number', default: 1 },
+      { key: 'leadTimeDays', label: 'Waktu kirim (hari)', type: 'number' },
+      { key: 'validUntil', label: 'Harga berlaku s.d.', type: 'date' },
+      { key: 'tkdn', label: 'TKDN (%)', type: 'number' },
+      { key: 'warrantyMonths', label: 'Garansi (bulan)', type: 'number' },
+      { key: 'account', label: 'Akun pembebanan', type: 'select', options: ACCOUNTS },
+      { key: 'specification', label: 'Spesifikasi', type: 'textarea', full: true },
+    ],
+    initial: 'draft',
+    statusFlow: ['draft', 'pending_approval', 'published'],
+    workflow: {
+      transitions: {
+        draft: ['pending_approval', 'retired'], pending_approval: ['published', 'rejected'], rejected: ['draft'],
+        published: ['draft', 'suspended', 'retired'], suspended: ['draft', 'retired'], retired: [],
+      },
+      required: { pending_approval: [['contract', 'Kontrak payung'], ['validUntil', 'Masa berlaku harga'], ['specification', 'Spesifikasi']] },
+    },
+  },
+  requisitions: {
+    model: 'Requisition', prefix: 'PR', label: 'Permintaan Pembelian', plural: 'Permintaan Pembelian', group: 'E-Procurement', icon: 'basket', titleField: 'title',
+    description: 'Purchase requisition dari keranjang e-katalog atau kebutuhan non-katalog: persetujuan atasan, procurement & controller; item katalog otomatis menjadi PO per penyedia, item non-katalog otomatis menjadi RFQ/tender.',
+    columns: ['number', 'title', 'requester', 'subtotal', 'neededBy', 'status'],
+    search: ['number', 'title', 'department'],
+    permissions: { read: ['*'], create: ['*'], write: ['vendor_manager'] },
+    ownScope: true,
+    fields: [
+      { key: 'title', label: 'Keperluan', type: 'text', required: true, full: true },
+      { key: 'requester', label: 'Pemohon', type: 'user' },
+      { key: 'department', label: 'Unit kerja', type: 'text' },
+      { key: 'approver', label: 'Atasan penyetuju', type: 'user' },
+      { key: 'budget', label: 'Mata anggaran', type: 'ref', resource: 'budgets' },
+      { key: 'neededBy', label: 'Dibutuhkan tanggal', type: 'date' },
+      { key: 'deliveryLocation', label: 'Lokasi pengiriman', type: 'text' },
+      { key: 'items', label: 'Rincian kebutuhan', type: 'lines', full: true, lines: [
+        { key: 'catalogItem', type: 'text', hidden: true }, { key: 'vendor', type: 'text', hidden: true },
+        { key: 'sku', label: 'SKU', type: 'text' }, { key: 'description', label: 'Barang/jasa', type: 'text' }, { key: 'qty', label: 'Qty', type: 'number' },
+        { key: 'unit', label: 'Satuan', type: 'text' }, { key: 'unitPrice', label: 'Harga/estimasi satuan', type: 'number' },
+      ] },
+      { key: 'catalogTotal', label: 'Nilai item katalog', type: 'readonly', store: 'number', format: 'money' },
+      { key: 'nonCatalogTotal', label: 'Estimasi item non-katalog', type: 'readonly', store: 'number', format: 'money' },
+      { key: 'subtotal', label: 'Estimasi total (sebelum PPN)', type: 'readonly', store: 'number', format: 'money' },
+      { key: 'justification', label: 'Justifikasi kebutuhan', type: 'textarea', full: true },
+      { key: 'processingNotes', label: 'Hasil pemrosesan', type: 'readonly', store: 'string', full: true },
+    ],
+    initial: 'draft',
+    statusFlow: ['draft', 'pending_approval', 'approved', 'in_procurement', 'completed'],
+    workflow: {
+      transitions: {
+        draft: ['pending_approval', 'cancelled'], pending_approval: ['approved', 'rejected'], rejected: ['draft', 'cancelled'],
+        approved: ['in_procurement'], in_procurement: ['completed'], completed: [], cancelled: [],
+      },
+      required: { pending_approval: [['justification', 'Justifikasi'], ['subtotal', 'Rincian kebutuhan']] },
+      canOwner: ['pending_approval', 'cancelled', 'draft'],
+      viaEffect: ['in_procurement'],
+    },
+    sections: [['Permintaan', ['title', 'requester', 'department', 'approver', 'budget', 'neededBy', 'deliveryLocation', 'justification']], ['Rincian', ['items', 'catalogTotal', 'nonCatalogTotal', 'subtotal', 'processingNotes']]],
+    compute: (d) => {
+      const val = (l) => Number(l.qty || 0) * Number(l.unitPrice || 0);
+      d.catalogTotal = sumLines((d.items || []).filter((l) => l.catalogItem), val);
+      d.nonCatalogTotal = sumLines((d.items || []).filter((l) => !l.catalogItem), val);
+      d.subtotal = round2(d.catalogTotal + d.nonCatalogTotal);
+    },
+  },
+  rfqs: {
+    model: 'Rfq', prefix: 'RFQ', label: 'RFQ / Tender', plural: 'RFQ & Tender', group: 'E-Procurement', icon: 'gavel', titleField: 'title',
+    description: 'Pemilihan penyedia secara kompetitif: undangan (min. 3 penyedia, penunjukan langsung wajib justifikasi), HPS, batas waktu, pembukaan penawaran, evaluasi harga–teknis berbobot, persetujuan pemenang oleh panitia & PO otomatis.',
+    columns: ['number', 'title', 'method', 'hpsAmount', 'closingDate', 'quotationCount', 'recommendedAmount', 'status'],
+    search: ['number', 'title'],
+    permissions: { read: ['vendor_manager', 'finance_manager', 'executive', 'auditor', 'project_manager', 'asset_manager', 'risk_officer', 'architect'], write: ['vendor_manager'] },
+    fields: [
+      { key: 'title', label: 'Paket pengadaan', type: 'text', required: true, full: true },
+      { key: 'method', label: 'Metode pemilihan', type: 'select', options: RFQ_METHOD, default: 'rfq' },
+      { key: 'requisition', label: 'Permintaan pembelian', type: 'ref', resource: 'requisitions' },
+      { key: 'budget', label: 'Mata anggaran', type: 'ref', resource: 'budgets', required: true },
+      { key: 'chairman', label: 'Ketua panitia / pejabat pengadaan', type: 'user' },
+      { key: 'hpsAmount', label: 'HPS / owner estimate (Rp, sebelum PPN)', type: 'number', required: true },
+      { key: 'closingDate', label: 'Batas pemasukan penawaran', type: 'datetime' },
+      { key: 'invitedVendors', label: 'Penyedia diundang', type: 'refs', resource: 'vendors', full: true },
+      { key: 'items', label: 'Lingkup & kuantitas', type: 'lines', full: true, lines: [
+        { key: 'description', label: 'Barang/jasa', type: 'text' }, { key: 'qty', label: 'Qty', type: 'number' }, { key: 'unit', label: 'Satuan', type: 'text' },
+      ] },
+      { key: 'priceWeight', label: 'Bobot harga (%)', type: 'number', default: 70 },
+      { key: 'technicalWeight', label: 'Bobot teknis (%)', type: 'readonly', store: 'number', format: 'percent' },
+      { key: 'minTechnicalScore', label: 'Ambang lulus teknis', type: 'number', default: 60 },
+      { key: 'evaluationCriteria', label: 'Kriteria evaluasi teknis', type: 'textarea', full: true },
+      { key: 'directJustification', label: 'Justifikasi penunjukan langsung', type: 'textarea', full: true },
+      { key: 'quotationCount', label: 'Penawaran masuk', type: 'readonly', store: 'number' },
+      { key: 'recommendedQuotation', label: 'Usulan pemenang', type: 'readonly', store: 'ref', resource: 'quotations' },
+      { key: 'recommendedVendor', label: 'Penyedia usulan', type: 'readonly', store: 'ref', resource: 'vendors' },
+      { key: 'recommendedAmount', label: 'Nilai penawaran usulan', type: 'readonly', store: 'number', format: 'money' },
+      { key: 'savingsAmount', label: 'Penghematan vs HPS', type: 'readonly', store: 'number', format: 'money' },
+      { key: 'savingsPct', label: 'Penghematan (%)', type: 'readonly', store: 'number', format: 'percent' },
+      { key: 'evaluationNotes', label: 'Berita acara evaluasi', type: 'textarea', full: true },
+      { key: 'openedAt', label: 'Penawaran dibuka', type: 'readonly', store: 'date', format: 'datetime' },
+      { key: 'purchaseOrder', label: 'PO diterbitkan', type: 'readonly', store: 'ref', resource: 'purchase-orders' },
+    ],
+    initial: 'draft',
+    statusFlow: ['draft', 'published', 'evaluation', 'pending_approval', 'awarded'],
+    workflow: {
+      transitions: {
+        draft: ['published', 'cancelled'], published: ['evaluation', 'cancelled'], evaluation: ['pending_approval', 'failed'],
+        pending_approval: ['awarded', 'evaluation'], failed: ['draft', 'cancelled'], awarded: [], cancelled: [],
+      },
+      required: {
+        published: [['closingDate', 'Batas pemasukan penawaran'], ['evaluationCriteria', 'Kriteria evaluasi']],
+        pending_approval: [['evaluationNotes', 'Berita acara evaluasi']],
+      },
+      stamp: { evaluation: 'openedAt' },
+    },
+    transitionFields: { published: ['closingDate', 'evaluationCriteria', 'invitedVendors', 'directJustification'], pending_approval: ['evaluationNotes'] },
+    sections: [
+      ['Paket', ['title', 'method', 'requisition', 'budget', 'chairman', 'hpsAmount', 'closingDate', 'items']],
+      ['Undangan & evaluasi', ['invitedVendors', 'directJustification', 'priceWeight', 'technicalWeight', 'minTechnicalScore', 'evaluationCriteria']],
+      ['Hasil', ['openedAt', 'quotationCount', 'recommendedQuotation', 'recommendedVendor', 'recommendedAmount', 'savingsAmount', 'savingsPct', 'evaluationNotes', 'purchaseOrder']],
+    ],
+    compute: (d) => {
+      d.priceWeight = Math.min(Math.max(Number(d.priceWeight ?? 70), 0), 100);
+      d.technicalWeight = 100 - d.priceWeight;
+    },
+  },
+  quotations: {
+    model: 'Quotation', prefix: 'QUO', label: 'Penawaran', plural: 'Penawaran Vendor', group: 'E-Procurement', icon: 'inbox', titleField: 'number',
+    description: 'Penawaran penyedia atas RFQ/tender: harga per item, waktu kirim & garansi; setelah pembukaan, harga terkunci dan skor harga, teknis, total & peringkat dihitung otomatis.',
+    columns: ['number', 'rfq', 'vendor', 'subtotal', 'technicalScore', 'totalScore', 'rank', 'status'],
+    search: ['number', 'vendorReference'],
+    defaultSort: '-totalScore -createdAt',
+    permissions: { read: ['vendor_manager', 'finance_manager', 'executive', 'auditor', 'project_manager', 'asset_manager', 'risk_officer', 'architect'], write: ['vendor_manager'] },
+    fields: [
+      { key: 'rfq', label: 'RFQ / tender', type: 'ref', resource: 'rfqs', required: true },
+      { key: 'vendor', label: 'Penyedia', type: 'ref', resource: 'vendors', required: true },
+      { key: 'vendorReference', label: 'No. surat penawaran', type: 'text' },
+      { key: 'submittedAt', label: 'Diterima', type: 'datetime' },
+      { key: 'items', label: 'Rincian harga', type: 'lines', full: true, lines: [
+        { key: 'description', label: 'Barang/jasa', type: 'text' }, { key: 'qty', label: 'Qty', type: 'number' }, { key: 'unitPrice', label: 'Harga satuan', type: 'number' },
+      ] },
+      { key: 'subtotal', label: 'Harga penawaran (sebelum PPN)', type: 'readonly', store: 'number', format: 'money' },
+      { key: 'taxRate', label: 'PPN (%)', type: 'number', default: DEFAULT_TAX_RATE },
+      { key: 'taxAmount', label: 'PPN', type: 'readonly', store: 'number', format: 'money' },
+      { key: 'total', label: 'Total', type: 'readonly', store: 'number', format: 'money' },
+      { key: 'deliveryDays', label: 'Waktu penyerahan (hari)', type: 'number' },
+      { key: 'warrantyMonths', label: 'Garansi (bulan)', type: 'number' },
+      { key: 'validUntil', label: 'Masa berlaku penawaran', type: 'date' },
+      { key: 'compliant', label: 'Administrasi lengkap & memenuhi syarat', type: 'bool', default: true },
+      { key: 'technicalScore', label: 'Nilai teknis (0–100)', type: 'number' },
+      { key: 'technicalNotes', label: 'Catatan evaluasi teknis', type: 'textarea', full: true },
+      { key: 'priceScore', label: 'Skor harga', type: 'readonly', store: 'number' },
+      { key: 'totalScore', label: 'Skor akhir', type: 'readonly', store: 'number' },
+      { key: 'rank', label: 'Peringkat', type: 'readonly', store: 'number' },
+      { key: 'evaluationResult', label: 'Hasil evaluasi', type: 'readonly', store: 'string', full: true },
+      { key: 'documentUrl', label: 'Tautan dokumen penawaran', type: 'text', full: true },
+    ],
+    initial: 'submitted',
+    statusFlow: ['submitted', 'evaluated', 'awarded'],
+    workflow: {
+      transitions: {
+        submitted: ['evaluated', 'withdrawn', 'disqualified'], evaluated: ['awarded', 'lost', 'disqualified'],
+        disqualified: [], withdrawn: [], awarded: [], lost: [],
+      },
+      required: { disqualified: [['technicalNotes', 'Alasan diskualifikasi']] },
+      viaEffect: ['evaluated', 'awarded', 'lost'],
+    },
+    transitionFields: { disqualified: ['technicalNotes'] },
+    compute: (d) => {
+      d.subtotal = sumLines(d.items, (l) => Number(l.qty || 0) * Number(l.unitPrice || 0));
+      withTax(d, d.subtotal);
+      if (!d.submittedAt) d.submittedAt = new Date().toISOString();
+    },
+  },
   'purchase-orders': {
-    model: 'PurchaseOrder', prefix: 'PO', label: 'Purchase Order', plural: 'Pengadaan (PO)', group: 'Vendor & Keuangan TI', icon: 'cart', titleField: 'title',
+    model: 'PurchaseOrder', prefix: 'PO', label: 'Purchase Order', plural: 'Purchase Order', group: 'E-Procurement', icon: 'cart', titleField: 'title',
     description: 'Procure-to-pay: PO dengan kontrol ketersediaan anggaran (commitment control), persetujuan berjenjang sesuai nilai, pemesanan & penerimaan barang/jasa.',
     columns: ['number', 'title', 'vendor', 'budget', 'total', 'status', 'neededBy'],
     search: ['number', 'title'],
@@ -100,6 +285,9 @@ export const MODULE_DEFS = {
       { key: 'vendor', label: 'Vendor', type: 'ref', resource: 'vendors', required: true },
       { key: 'contract', label: 'Kontrak', type: 'ref', resource: 'contracts' },
       { key: 'budget', label: 'Mata anggaran', type: 'ref', resource: 'budgets', required: true },
+      { key: 'sourcing', label: 'Metode pengadaan', type: 'select', options: o('catalog:E-katalog|rfq:RFQ|limited_tender:Tender terbatas|open_tender:Tender terbuka|direct:Penunjukan langsung|contract:Kontrak berjalan'), default: 'contract' },
+      { key: 'requisition', label: 'Permintaan pembelian', type: 'ref', resource: 'requisitions' },
+      { key: 'rfq', label: 'RFQ / tender', type: 'ref', resource: 'rfqs' },
       { key: 'requester', label: 'Pemohon', type: 'user' },
       { key: 'neededBy', label: 'Dibutuhkan tanggal', type: 'date' },
       { key: 'items', label: 'Rincian barang/jasa', type: 'lines', full: true, lines: [

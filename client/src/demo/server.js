@@ -15,13 +15,13 @@ import { notificationsFor } from '../../../shared/notify.mjs';
 import { computeDashboard, computeReports, computeMyWork } from '../../../shared/insights.mjs';
 import { computeKpi } from '../../../shared/kpi.mjs';
 import { APPROVALS, approvalError, decide, startRound } from '../../../shared/approvals.mjs';
-import { CHECKS, EFFECTS, ON_SAVE, spawnPrefill, spawnRule } from '../../../shared/effects.mjs';
+import { CHECKS, EFFECTS, ON_SAVE, VALIDATE, spawnPrefill, spawnRule } from '../../../shared/effects.mjs';
 import { ALL_MODULES } from '../../../shared/plans.mjs';
 import { grantedModules, userLimit } from '../../../shared/permissions.mjs';
 import { RESOURCES, hasRole, isRequesterOnly, same } from './registry.js';
 import { seed, DEMO_PASSWORD } from './seed.js';
 
-const KEY = 'itsm_demo_db_v4';
+const KEY = 'itsm_demo_db_v5';
 const NAME_KEYED = ['services', 'configuration-items', 'assets', 'vendors', 'continuity', 'architecture', 'projects', 'sprints', 'sla-policies'];
 const ALWAYS_PROTECTED = ['_id', 'id', 'tenant', 'number', 'activities', 'approvals', 'approvalRound', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'sla', '__v', 'allowedTransitions', 'slaStatus', '_spawnFrom'];
 const DEFAULT_SLA = [[1, 15, 240], [2, 30, 480], [3, 120, 1440], [4, 480, 4320]];
@@ -242,13 +242,20 @@ const requirePage = (ctx, page) => {
   if (!canPage(ctx.user, page)) throw new DemoError(403, 'Akses ditolak untuk peran Anda');
 };
 
+const CHECK_SKIP = ['_id', 'tenant', 'status', 'approvals', 'activities', 'approvalRound', 'createdBy', 'createdAt', 'updatedAt', 'number'];
 async function runCheck(ctx, name, doc, to) {
   const check = CHECKS[name]?.[to];
   if (!check) return;
   const p = clone(doc);
   const err = await check(p, makeStore(ctx));
   if (err) throw new DemoError(422, err);
-  for (const k of ['vendor', 'matchResult']) if (p[k] !== undefined) doc[k] = p[k];
+  for (const [k, v] of Object.entries(p)) if (!CHECK_SKIP.includes(k) && JSON.stringify(v) !== JSON.stringify(doc[k])) doc[k] = v;
+}
+
+async function runValidate(ctx, name, doc, extra) {
+  if (!VALIDATE[name]) return;
+  const err = await VALIDATE[name](clone(doc), makeStore(ctx), extra);
+  if (err) throw new DemoError(422, err);
 }
 
 /** Transisi lengkap: cek → status → efek → notifikasi (cermin server/src/services/records.js). */
@@ -286,13 +293,14 @@ async function createRecord(ctx, name, body, { trusted = false } = {}) {
   const data = trusted ? Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined)) : sanitize(body, protectedKeys, def.readonlyKeys);
   if (!trusted) validateRefs(name, data, tenant._id);
   const now = nowIso();
-  const doc = { ...clone(def.defaults || {}), ...data, _id: newId(), tenant: tenant._id, activities: [], createdBy: user._id, updatedBy: user._id, createdAt: data.createdAt || now, updatedAt: now };
+  const doc = { ...clone(def.defaults || {}), ...data, _id: newId(), tenant: tenant._id, activities: [], createdBy: (trusted && data.createdBy) || user._id, updatedBy: user._id, createdAt: data.createdAt || now, updatedAt: now };
   if (def.initial && !doc.status) doc.status = def.initial;
   if (titleKey && !doc[titleKey]) throw new DemoError(400, 'Validasi gagal', { [titleKey]: `${titleKey === 'name' ? 'Nama' : 'Judul'} wajib diisi` });
   for (const [k, msg] of Object.entries(def.required || {})) if (!doc[k]) throw new DemoError(400, 'Validasi gagal', { [k]: msg });
   def.beforeCreate?.(doc, user, db);
   def.beforeSave?.(doc, user, true);
   if (def.sla) applySla(doc, def.sla, true);
+  if (!trusted) await runValidate(ctx, name, clone(doc), { isNew: true });
   if (def.prefix) doc.number = nextNumber(tenant._id, def.prefix);
   if (!def.noActivity) doc.activities.push({ _id: newId(), type: 'system', message: `${def.label} dibuat`, by: user._id, byName: user.name, at: now });
   const stored = clone(doc);
@@ -391,6 +399,9 @@ async function resourceRoute(ctx, name, method, rest, body, query) {
     const before = clone(doc);
     const updates = sanitize(body, protectedKeys, def.readonlyKeys);
     validateRefs(name, updates, ctx.tenant._id);
+    const draft = { ...clone(doc), ...updates };
+    def.beforeSave?.(draft, user, false);
+    await runValidate(ctx, name, draft, { isNew: false, before });
     Object.assign(doc, updates);
     for (const [k, v] of Object.entries(updates)) if (v === undefined) delete doc[k];
     const prevPriority = before.priority;
@@ -753,7 +764,7 @@ async function route(method, path, body, query, token) {
   }
   if (path === '/kpi') {
     requirePage(ctx, 'kpi');
-    const data = readable(ctx, ['incidents', 'changes', 'requests', 'problems', 'budgets', 'invoices', 'payments', 'risks', 'controls', 'findings', 'risk-actions', 'control-tests', 'datacenters', 'racks', 'dc-access', 'continuity', 'bia', 'dr-tests', 'services', 'assets', 'vendors', 'contracts']);
+    const data = readable(ctx, ['incidents', 'changes', 'requests', 'problems', 'budgets', 'invoices', 'payments', 'risks', 'controls', 'findings', 'risk-actions', 'control-tests', 'datacenters', 'racks', 'dc-access', 'continuity', 'bia', 'dr-tests', 'services', 'assets', 'vendors', 'contracts', 'purchase-orders', 'catalog-items', 'requisitions', 'rfqs']);
     return computeKpi(data, { period: Math.min(Math.max(Number(query.months) || 6, 3), 12) });
   }
   if (path === '/my-work') {

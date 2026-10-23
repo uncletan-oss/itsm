@@ -13,6 +13,7 @@ const short = (v) => {
   if (Math.abs(n) >= 1e6) return `${(n / 1e6).toLocaleString('id-ID', { maximumFractionDigits: 0 })} jt`;
   return n.toLocaleString('id-ID');
 };
+const SOURCING = { catalog: 'E-katalog', rfq: 'RFQ', limited_tender: 'Tender terbatas', open_tender: 'Tender terbuka', direct: 'Penunjukan langsung', contract: 'Kontrak berjalan' };
 const SEV = { critical: 'Kritis', high: 'Tinggi', medium: 'Sedang', low: 'Rendah' };
 const SEV_COLORS = { critical: 'var(--red)', high: 'var(--orange)', medium: 'var(--amber)', low: 'var(--green)' };
 
@@ -51,10 +52,11 @@ export default function Kpi() {
   const labels = useMemo(() => (k?.months || []).map((m) => m.label), [k]);
 
   if (error) return <div className="alert">{error}</div>;
-  const tabs = [['exec', 'Ringkasan eksekutif'], k?.operations && ['ops', 'Operasional ITSM'], k?.finance && ['fin', 'Keuangan TI'], k?.grc && ['grc', 'GRC & Assurance'], k?.dcim && ['dc', 'Data Center'], k?.bcm && ['bcm', 'Ketahanan (BCM/DR)']].filter(Boolean);
+  const tabs = [['exec', 'Ringkasan eksekutif'], k?.operations && ['ops', 'Operasional ITSM'], k?.procurement && ['proc', 'E-Procurement'], k?.finance && ['fin', 'Keuangan TI'], k?.grc && ['grc', 'GRC & Assurance'], k?.dcim && ['dc', 'Data Center'], k?.bcm && ['bcm', 'Ketahanan (BCM/DR)']].filter(Boolean);
   const ops = k?.operations;
   const fin = k?.finance;
   const grc = k?.grc;
+  const proc = k?.procurement;
   const series = (kk) => kk.series.map((p) => p.value);
 
   return (
@@ -113,6 +115,31 @@ export default function Kpi() {
                   {ops.changeTypes && <HBars data={ops.changeTypes} labels={{ standard: 'Standard', normal: 'Normal', emergency: 'Emergency' }} />}
                 </Section>
               </div>
+            </>
+          )}
+
+          {tab === 'proc' && proc && (
+            <>
+              <div className="kpis">
+                <div className="kpi"><span className="kpi-ic"><Icon name="cart" /></span><span><div className="kpi-value">Rp {short(proc.totals.poValue)}</div><div className="kpi-label">Nilai PO terbit ({months} bln)</div></span></div>
+                <div className="kpi tone-gold"><span className="kpi-ic"><Icon name="grid" /></span><span><div className="kpi-value">{proc.totals.catalogShare ?? 0}%</div><div className="kpi-label">Belanja melalui e-katalog</div></span></div>
+                <div className="kpi tone-green"><span className="kpi-ic"><Icon name="trend" /></span><span><div className="kpi-value">Rp {short(proc.totals.savings)}</div><div className="kpi-label">Penghematan vs HPS ({proc.totals.savingsPct ?? 0}%)</div></span></div>
+                <div className="kpi"><span className="kpi-ic"><Icon name="gavel" /></span><span><div className="kpi-value">{proc.totals.competitiveShare ?? '—'}%</div><div className="kpi-label">Non-katalog via kompetisi</div></span></div>
+                <div className="kpi"><span className="kpi-ic"><Icon name="users" /></span><span><div className="kpi-value">{proc.totals.avgBids ?? '—'}</div><div className="kpi-label">Rata-rata penawaran / RFQ</div></span></div>
+                <div className="kpi"><span className="kpi-ic"><Icon name="clock" /></span><span><div className="kpi-value">{proc.totals.prCycleDays ?? '—'} hari</div><div className="kpi-label">Siklus PR → pengadaan</div></span></div>
+              </div>
+              <div className="kpis">{proc.kpis.map((x) => <TrendCard key={x.label} k={x} />)}</div>
+              <div className="grid-3">
+                <Section title="Nilai PO per metode pengadaan" to="/m/purchase-orders"><Donut data={Object.fromEntries(Object.entries(proc.bySourcing).map(([kk, v]) => [kk, Math.round(v / 1e6)]))} labels={SOURCING} center={short(proc.totals.poValue)} /><p className="small muted">juta rupiah</p></Section>
+                <Section title="HPS vs nilai kontrak tender" to="/m/rfqs">
+                  {proc.savingsByRfq.length ? <BudgetBars rows={proc.savingsByRfq.map((r) => ({ ...r, amount: r.hps, committed: r.awarded, actual: 0 }))} format={(v) => `Rp ${short(v)}`} legend={['HPS', 'Nilai pemenang']} /> : <p className="muted small">Belum ada tender yang ditetapkan.</p>}
+                </Section>
+                <Section title="Penyedia terbesar (nilai PO)" to="/m/vendors"><HBars data={proc.topVendors.map((v) => [v.name, Math.round(v.amount / 1e6)])} color="var(--chart-2)" /><p className="small muted">juta rupiah</p></Section>
+                <Section title="Tren porsi e-katalog"><LineChart labels={labels} series={[{ label: 'Porsi e-katalog (%)', values: series(proc.kpis[1]), color: 'var(--chart-1)' }]} height={180} /></Section>
+                {proc.prByStatus && <Section title="Permintaan pembelian per status" to="/m/requisitions"><HBars data={proc.prByStatus} labels={STATUS_LABELS} color="var(--chart-3)" /></Section>}
+                {proc.rfqByStatus && <Section title="RFQ & tender per status" to="/m/rfqs"><HBars data={proc.rfqByStatus} labels={STATUS_LABELS} color="var(--chart-5)" /></Section>}
+              </div>
+              {proc.totals.catalogExpiring30d > 0 && <div className="alert warn"><Icon name="alert" size="sm" />{proc.totals.catalogExpiring30d} item e-katalog akan habis masa berlaku harganya dalam 30 hari — perbarui harga atau kontrak payung.</div>}
             </>
           )}
 

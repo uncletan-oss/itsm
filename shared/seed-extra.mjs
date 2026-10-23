@@ -71,6 +71,69 @@ export async function seedExtended(store, { u, refs }) {
   });
   for (const b of Object.values(B)) await ON_SAVE.budgets(b, store);
 
+  // ---------------- E-Procurement: e-katalog, PR, RFQ/tender ----------------
+  const vendor = (data) => make('vendors', { criticality: 'medium', dueDiligenceResult: 'passed', riskRating: 'low', dataLocation: 'Indonesia', status: 'active', ...data });
+  const vHw = await vendor({ name: 'PT Mitra Perangkat Komputindo', category: 'hardware', contactName: 'Hendra', contactEmail: 'sales@mitrakomputindo.co.id' });
+  const vNet = await vendor({ name: 'PT Solusi Jaringan Prima', category: 'network', contactName: 'Yuni' });
+  const vAudit = await vendor({ name: 'PT Siber Audit Indonesia', category: 'consulting', contactName: 'Fajar' });
+  const fa = (data) => make('contracts', { contractType: 'msa', owner: id(u.vendor._id), startDate: days(-90), endDate: days(275), rightToAudit: true, dataLocation: 'Indonesia', status: 'active', legalNotes: 'Kontrak payung harga satuan (framework agreement)', slaTerms: 'Pengiriman sesuai lead time katalog; denda keterlambatan 1‰/hari', ...data });
+  const faHw = await fa({ title: 'Kontrak payung perangkat end-user 2026–2027', vendor: id(vHw), value: 3000000000 });
+  const faSoft = await fa({ title: 'Kontrak payung lisensi & subskripsi perangkat lunak', vendor: id(vSoft), contractType: 'license', value: 2000000000 });
+  const published = { status: 'published', approvalRound: 1, approvals: [appr('IT Controller (kewajaran harga)', u.finance), appr('Enterprise Architect (standar teknologi)', u.architect)] };
+  const cat = (data) => make('catalog-items', { unit: 'unit', minOrderQty: 1, validUntil: days(270), ...published, ...data });
+  const C = {
+    laptop: await cat({ name: 'Laptop standar pegawai 14" (i5, 16 GB, SSD 512 GB)', sku: 'HW-LT-STD', category: 'hardware', vendor: id(vHw), contract: id(faHw), unitPrice: 18500000, leadTimeDays: 14, tkdn: 40, warrantyMonths: 36, account: '1300', specification: 'Intel Core i5 / Ryzen 5, RAM 16 GB, SSD 512 GB, Windows 11 Pro, TPM 2.0, garansi on-site 3 tahun' }),
+    laptopDev: await cat({ name: 'Laptop pengembang 16" (i7, 32 GB, SSD 1 TB)', sku: 'HW-LT-DEV', category: 'hardware', vendor: id(vHw), contract: id(faHw), unitPrice: 28000000, leadTimeDays: 21, tkdn: 35, warrantyMonths: 36, account: '1300', specification: 'Intel Core i7 / Ryzen 7, RAM 32 GB, SSD 1 TB, layar 16" QHD' }),
+    monitor: await cat({ name: 'Monitor 27" QHD', sku: 'HW-MN-27', category: 'peripheral', vendor: id(vHw), contract: id(faHw), unitPrice: 3900000, leadTimeDays: 7, tkdn: 25, warrantyMonths: 36, specification: 'IPS 27", 2560×1440, USB-C 65 W', approvals: [appr('IT Controller (kewajaran harga)', u.finance)] }),
+    dock: await cat({ name: 'Docking station USB-C', sku: 'HW-DK-USBC', category: 'peripheral', vendor: id(vHw), contract: id(faHw), unitPrice: 2600000, leadTimeDays: 7, warrantyMonths: 24, specification: 'Dual display, LAN gigabit, PD 100 W', approvals: [appr('IT Controller (kewajaran harga)', u.finance)] }),
+    headset: await cat({ name: 'Headset call center noise-cancelling', sku: 'HW-HS-CC', category: 'peripheral', vendor: id(vHw), contract: id(faHw), unitPrice: 850000, minOrderQty: 5, leadTimeDays: 5, warrantyMonths: 12, specification: 'Binaural, USB, mikrofon noise-cancelling', approvals: [appr('IT Controller (kewajaran harga)', u.finance)] }),
+    m365: await cat({ name: 'Lisensi Microsoft 365 E3 (per pengguna / tahun)', sku: 'SW-M365-E3', category: 'software', vendor: id(vSoft), contract: id(faSoft), unit: 'pengguna/tahun', unitPrice: 2000000, leadTimeDays: 2, account: '5110', specification: 'Subskripsi tahunan, termasuk Exchange, Teams, Intune' }),
+    edr: await cat({ name: 'Lisensi EDR endpoint (per perangkat / tahun)', sku: 'SW-EDR', category: 'software', vendor: id(vSoft), contract: id(faSoft), unit: 'perangkat/tahun', unitPrice: 650000, minOrderQty: 10, leadTimeDays: 3, account: '5110', specification: 'Endpoint detection & response, konsol cloud region Indonesia' }),
+  };
+  await make('catalog-items', { name: 'Tablet operasional cabang 10"', sku: 'HW-TB-10', category: 'hardware', vendor: id(vHw), contract: id(faHw), unit: 'unit', unitPrice: 6200000, validUntil: days(270), leadTimeDays: 14, specification: 'Tablet 10", LTE, MDM-ready', status: 'pending_approval', approvalRound: 1, approvals: [appr('IT Controller (kewajaran harga)', u.finance)] });
+  await make('catalog-items', { name: 'Printer laser A4 jaringan', sku: 'HW-PR-A4', category: 'peripheral', vendor: id(vHw), contract: id(faHw), unitPrice: 5400000, status: 'draft' });
+
+  const line = (c, qty) => ({ catalogItem: id(c), vendor: id(c.vendor), sku: c.sku, description: c.name, qty, unit: c.unit, unitPrice: c.unitPrice });
+  const prDone = await make('requisitions', {
+    title: 'Perangkat kerja pegawai baru Divisi Digital Banking', requester: id(u.pm._id), department: 'Digital Banking', budget: id(B.infra), neededBy: days(20), deliveryLocation: 'Kantor pusat lt. 12',
+    items: [line(C.laptopDev, 5), line(C.monitor, 5), line(C.dock, 5), line(C.m365, 5)], justification: 'Onboarding 5 pengembang baru program modernisasi core banking',
+    status: 'approved', approvalRound: 1, createdAt: days(-5), approvals: [appr('Procurement (kebutuhan & anggaran)', u.vendor, { at: days(-4) }), appr('IT Controller (≥ Rp 100 jt)', u.finance, { at: days(-3) })],
+  });
+  await EFFECTS.requisitions.approved(prDone, store);
+  await make('requisitions', {
+    title: 'Headset & docking untuk tim service desk', requester: id(u.user._id), department: 'TI - Service Desk', approver: id(u.servicedesk._id), budget: id(B.infra), neededBy: days(10),
+    items: [line(C.headset, 10), line(C.dock, 4)], justification: 'Penggantian headset rusak & penambahan agen shift malam',
+    status: 'pending_approval', approvalRound: 1, approvals: [appr('Atasan pemohon', u.servicedesk)],
+  });
+  await make('requisitions', {
+    title: 'Perangkat lab pengujian aplikasi', requester: id(u.tech._id), department: 'TI - Infrastruktur', neededBy: days(30),
+    items: [line(C.laptop, 1), { description: 'Switch lab 24-port managed', qty: 2, unit: 'unit', unitPrice: 15000000 }], justification: 'Lingkungan uji terisolasi untuk regression test', status: 'draft',
+  });
+
+  // RFQ/tender: (1) sudah ditetapkan & PO terbit, (2) menunggu penetapan pemenang, (3) sedang diumumkan
+  const rfq = (data) => make('rfqs', { chairman: id(u.architect._id), priceWeight: 70, minTechnicalScore: 60, evaluationCriteria: 'Kesesuaian spesifikasi 40%, pengalaman & referensi 30%, dukungan purna jual 30%', ...data });
+  const quote = (r, v, price, tech, extra = {}) => make('quotations', { rfq: id(r), vendor: id(v), items: (r.items || []).map((l) => ({ description: l.description, qty: l.qty, unitPrice: price / (l.qty || 1) / (r.items.length || 1) })), taxRate: 11, technicalScore: tech, deliveryDays: 30, warrantyMonths: 36, validUntil: days(60), compliant: true, vendorReference: `SP/${v.name.split(' ')[1]}/${Math.floor(Math.random() * 900 + 100)}`, ...extra });
+  const evaluate = async (r) => { await EFFECTS.rfqs.evaluation(r, store); return store.get('rfqs', id(r)); };
+
+  let rBackup = await rfq({ title: 'Backup appliance immutable DC & DRC', method: 'limited_tender', budget: id(B.infra), hpsAmount: 800000000, closingDate: days(-40), invitedVendors: [id(vHw), id(vNet), id(vCloud)], items: [{ description: 'Backup appliance 200 TB usable + lisensi', qty: 2, unit: 'unit' }], status: 'evaluation', openedAt: days(-40), createdAt: days(-60) });
+  await quote(rBackup, vHw, 690000000, 82, { submittedAt: days(-42) });
+  await quote(rBackup, vNet, 720000000, 88, { submittedAt: days(-41) });
+  await quote(rBackup, vCloud, 845000000, 90, { submittedAt: days(-41) });
+  rBackup = await evaluate(rBackup);
+  rBackup = await store.update('rfqs', id(rBackup), { status: 'awarded', evaluationNotes: 'BA evaluasi No. 07/PANITIA/2026: 3 penawaran, 1 gugur (di atas HPS)', approvalRound: 1, approvals: [appr('Ketua panitia', u.architect), appr('IT Controller (kesesuaian anggaran)', u.finance), appr('CIO / Direksi (≥ Rp 500 jt / penunjukan langsung)', u.executive)] });
+  await EFFECTS.rfqs.awarded(rBackup, store);
+
+  let rSwitch = await rfq({ title: 'Switch core data center Cikarang (HA pair)', method: 'limited_tender', budget: id(B.infra), hpsAmount: 1200000000, closingDate: days(-2), invitedVendors: [id(vNet), id(vHw), id(vSoft)], items: [{ description: 'Switch core 100G spine/leaf, HA pair, 3 tahun support', qty: 2, unit: 'unit' }], status: 'evaluation', openedAt: days(-1) });
+  await quote(rSwitch, vNet, 1050000000, 86, { submittedAt: days(-3) });
+  await quote(rSwitch, vHw, 980000000, 71, { submittedAt: days(-3) });
+  await quote(rSwitch, vSoft, 1250000000, 80, { submittedAt: days(-2) });
+  rSwitch = await evaluate(rSwitch);
+  await store.update('rfqs', id(rSwitch), { status: 'pending_approval', evaluationNotes: 'Evaluasi harga 70% – teknis 30%; penawaran CV Solusi Perangkat Lunak gugur karena melebihi HPS', approvalRound: 1, approvals: [appr('Ketua panitia', u.architect)] });
+
+  const rPentest = await rfq({ title: 'Jasa penetration test aplikasi mobile banking', method: 'rfq', budget: id(B.sec), hpsAmount: 250000000, closingDate: days(6), invitedVendors: [id(vAudit), id(vNet), id(vSoft)], items: [{ description: 'Pentest black/grey box aplikasi mobile & API', qty: 1, unit: 'paket' }], status: 'published' });
+  await quote(rPentest, vAudit, 210000000, null, { technicalScore: undefined, deliveryDays: 21, warrantyMonths: 0 });
+  await rfq({ title: 'Lisensi SIEM & managed detection', method: 'direct', budget: id(B.sec), hpsAmount: 950000000, items: [{ description: 'Lisensi SIEM 1 tahun', qty: 1, unit: 'paket' }], status: 'draft', invitedVendors: [id(vSoft)], directJustification: 'Lanjutan implementasi platform yang sama (kompatibilitas teknis)' });
+
   // ---------------- GRC & assurance ----------------
   if (riskRansom) {
     await make('risk-actions', { title: 'Implementasi immutable backup untuk server produksi', risk: id(riskRansom), actionType: 'preventive', owner: id(u.tech._id), dueDate: days(-20), status: 'verified', completionEvidence: 'Snapshot immutable 30 hari aktif', verificationNotes: 'Diverifikasi uji restore', completedAt: days(-25), verifiedBy: id(u.risk._id) });
@@ -131,5 +194,5 @@ export async function seedExtended(store, { u, refs }) {
   await ini({ title: 'SIEM & SOC 24x7', category: 'regulatory', regulatoryDriver: 'POJK 11/2022 — ketahanan & keamanan siber', strategicAlignment: 5, businessValue: 4, urgency: 5, deliveryRisk: 3, estimatedCost: 3200000000, targetQuarter: `${year}-Q4`, objective: 'Deteksi & respons insiden 24x7', businessCase: 'Kepatuhan & penurunan dampak insiden', architectureNotes: 'Managed SOC + SIEM cloud', status: 'approved', approvals: [appr('Enterprise Architect', u.architect), appr('Finance (estimasi biaya)', u.finance), appr('IT Steering Committee', u.executive)], approvalRound: 1 });
   await ini({ title: 'Open API standar SNAP untuk mitra', category: 'regulatory', regulatoryDriver: 'Standar Nasional Open API Pembayaran (BI)', strategicAlignment: 4, businessValue: 4, urgency: 3, deliveryRisk: 3, estimatedCost: 2200000000, targetQuarter: `${year + 1}-Q2`, objective: 'Integrasi mitra fintech', businessCase: 'Pendapatan fee berbasis API', status: 'assessment' });
   await ini({ title: 'Otomasi pelaporan TI ke regulator', category: 'run', strategicAlignment: 3, businessValue: 3, urgency: 3, deliveryRisk: 2, estimatedCost: 450000000, targetQuarter: `${year + 1}-Q3`, objective: 'Mengurangi pekerjaan manual pelaporan', status: 'proposed' });
-  return { vSec };
+  return { vSec, vHw, vNet, vAudit };
 }

@@ -151,13 +151,14 @@ export const RESOURCES = {
 
 // Modul deklaratif (shared/modules.mjs) — refs, default, workflow & hitungan dari satu definisi
 const COLL = (f) => (f.type === 'user' || (f.type === 'readonly' && f.store === 'user') ? 'users' : f.resource);
+const isRef = (f) => ['ref', 'refs', 'user'].includes(f.type) || (f.type === 'readonly' && ['user', 'ref', 'refs'].includes(f.store));
 for (const [key, def] of Object.entries(MODULE_DEFS)) {
   const titleKey = def.fields.find((f) => f.key === 'name') ? 'name' : 'title';
   RESOURCES[key] = {
     prefix: def.prefix, label: def.label, search: def.search, defaultSort: def.defaultSort,
     workflow: def.workflow ? fromSpec(def.workflow) : undefined,
     initial: def.initial,
-    refs: Object.fromEntries(def.fields.filter((f) => ['ref', 'refs', 'user'].includes(f.type) || (f.type === 'readonly' && f.store === 'user')).map((f) => [f.key, COLL(f)])),
+    refs: Object.fromEntries(def.fields.filter(isRef).map((f) => [f.key, COLL(f)])),
     defaults: Object.fromEntries(def.fields.filter((f) => f.default !== undefined).map((f) => [f.key, f.default])),
     required: Object.fromEntries(def.fields.filter((f) => f.required && f.key !== titleKey && f.type !== 'readonly').map((f) => [f.key, `${f.label} wajib diisi`])),
     titleKey: def.fields.find((f) => f.key === titleKey) ? titleKey : null,
@@ -167,6 +168,9 @@ for (const [key, def] of Object.entries(MODULE_DEFS)) {
       ? (user, doc, to) => (def.workflow.canOwner?.includes(to) && ['requester', 'createdBy', 'owner'].some((f) => same(doc[f], user))) || (!!def.workflow.roles?.[to] && hasRole(user, def.workflow.roles[to]))
       : undefined,
     transitionFieldsFor: (to) => def.transitionFields?.[to] || def.workflow?.required?.[to]?.map(([f]) => f) || [],
+    beforeCreate: def.fields.some((f) => f.key === 'requester' && f.type === 'user')
+      ? (doc, user) => { if (isRequesterOnly(user) || !doc.requester) doc.requester = user._id; }
+      : undefined,
     beforeSave: def.compute ? (doc) => def.compute(doc) : undefined,
   };
 }

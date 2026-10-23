@@ -213,6 +213,91 @@ test('Alur end-to-end: procure-to-pay, GRC assurance, BCM, DCIM, persetujuan & g
     assert.ok(w.body.approvals.some((a) => a._id === po2._id));
   });
 
+  await t.test('e-procurement: e-katalog → PR (harga terkunci) → PO otomatis & RFQ → evaluasi → penetapan pemenang → PO', async () => {
+    const day = (n) => new Date(Date.now() + n * 864e5).toISOString();
+    const Vendor = mongoose.model('Vendor');
+    const [v1, v2, v3, v4] = await Promise.all(['Alfa', 'Beta', 'Gama', 'Delta'].map((n, i) => Vendor.create({ tenant: T._id, number: `VND-P${i}`, name: `PT ${n}`, status: i === 3 ? 'prospect' : 'active' })));
+    const fa = await mongoose.model('Contract').create({ tenant: T._id, number: 'CTR-P1', title: 'Kontrak payung', vendor: v1._id, status: 'active', endDate: day(300) });
+    const bgt = await mongoose.model('Budget').create({ tenant: T._id, number: 'BGT-P1', name: 'Pengadaan', fiscalYear: 2026, amount: 2000000000, status: 'active' });
+    const arch = await mk(T, 'arch@x.io', ['architect']);
+    const user = await mk(T, 'user@x.io', ['requester']);
+    const other = await mk(T, 'other@x.io', ['requester']);
+
+    // E-katalog: kontrak harus milik penyedia yang sama; validasi harga Controller + standar teknologi arsitek
+    await request(app).post('/api/catalog-items').set(A(user)).send({ name: 'x', vendor: String(v1._id), unitPrice: 1 }).expect(403);
+    const bad = (await request(app).post('/api/catalog-items').set(A(proc)).send({ name: 'Salah kontrak', vendor: String(v2._id), contract: String(fa._id), unitPrice: 1000, validUntil: day(30), specification: 'x' }).expect(201)).body;
+    assert.match((await go(proc, ['catalog-items', bad._id], 'pending_approval').expect(422)).body.error, /bukan milik/);
+    const item = (await request(app).post('/api/catalog-items').set(A(proc)).send({ name: 'Laptop standar', sku: 'LT-1', category: 'hardware', vendor: String(v1._id), contract: String(fa._id), unitPrice: 20000000, validUntil: day(100), specification: '16 GB' }).expect(201)).body;
+    await go(proc, ['catalog-items', item._id], 'pending_approval').expect(200);
+    assert.strictEqual((await approve(fin, 'catalog-items', item._id).expect(200)).body.status, 'pending_approval');
+    assert.strictEqual((await approve(arch, 'catalog-items', item._id).expect(200)).body.status, 'published');
+    assert.ok((await request(app).get('/api/catalog-items?status=published').set(A(user)).expect(200)).body.items.some((c) => c._id === item._id));
+
+    // PR dari keranjang: harga ketikan pemohon diabaikan, dikunci ke harga katalog
+    let pr = (await request(app).post('/api/requisitions').set(A(user)).send({
+      title: 'Perangkat tim baru', approver: tech.id,
+      items: [{ catalogItem: item._id, qty: 3, unitPrice: 1 }, { description: 'Switch 24 port', qty: 2, unitPrice: 150000000, unit: 'unit' }],
+      justification: 'Onboarding',
+    }).expect(201)).body;
+    assert.strictEqual(pr.requester._id, user.id);
+    pr = (await go(user, ['requisitions', pr._id], 'pending_approval').expect(200)).body;
+    assert.strictEqual(pr.items[0].unitPrice, 20000000);
+    assert.strictEqual(pr.subtotal, 360000000);
+    await request(app).get(`/api/requisitions/${pr._id}`).set(A(other)).expect(404); // hanya pemohon sendiri
+    await approve(proc, 'requisitions', pr._id).expect(403); // tahap atasan dulu
+    await approve(tech, 'requisitions', pr._id).expect(200);
+    await approve(proc, 'requisitions', pr._id).expect(200);
+    assert.match((await approve(fin, 'requisitions', pr._id).expect(422)).body.error, /mata anggaran/);
+    await request(app).put(`/api/requisitions/${pr._id}`).set(A(proc)).send({ budget: String(bgt._id) }).expect(200);
+    pr = (await approve(fin, 'requisitions', pr._id).expect(200)).body;
+    pr = (await request(app).get(`/api/requisitions/${pr._id}`).set(A(user)).expect(200)).body;
+    assert.strictEqual(pr.status, 'in_procurement');
+    const pos = (await request(app).get(`/api/purchase-orders?requisition=${pr._id}`).set(A(proc)).expect(200)).body.items;
+    assert.strictEqual(pos.length, 1);
+    assert.deepStrictEqual([pos[0].sourcing, pos[0].status, pos[0].subtotal], ['catalog', 'approved', 60000000]);
+    let rfq = (await request(app).get(`/api/rfqs?requisition=${pr._id}`).set(A(proc)).expect(200)).body.items[0];
+    assert.deepStrictEqual([rfq.method, rfq.status, rfq.hpsAmount], ['limited_tender', 'draft', 300000000]);
+    assert.strictEqual(rfq.createdBy, proc.id); // milik procurement, bukan Controller
+
+    // RFQ: minimal 3 penyedia aktif diundang
+    await request(app).put(`/api/rfqs/${rfq._id}`).set(A(proc)).send({ chairman: arch.id, invitedVendors: [String(v1._id), String(v2._id)], closingDate: day(5), evaluationCriteria: 'Spesifikasi & dukungan' }).expect(200);
+    assert.match((await go(proc, ['rfqs', rfq._id], 'published').expect(422)).body.error, /minimal 3/);
+    await request(app).put(`/api/rfqs/${rfq._id}`).set(A(proc)).send({ invitedVendors: [String(v1._id), String(v2._id), String(v4._id)] }).expect(200);
+    assert.match((await go(proc, ['rfqs', rfq._id], 'published').expect(422)).body.error, /terverifikasi/);
+    await request(app).put(`/api/rfqs/${rfq._id}`).set(A(proc)).send({ invitedVendors: [String(v1._id), String(v2._id), String(v3._id)] }).expect(200);
+    await go(proc, ['rfqs', rfq._id], 'published').expect(200);
+
+    const quote = (v, price) => request(app).post('/api/quotations').set(A(proc)).send({ rfq: rfq._id, vendor: String(v._id), items: [{ description: 'Switch', qty: 2, unitPrice: price / 2 }] });
+    assert.match((await quote(v4, 100).expect(422)).body.error, /undangan/);
+    const q1 = (await quote(v1, 280000000).expect(201)).body;
+    const q2 = (await quote(v2, 260000000).expect(201)).body;
+    await quote(v1, 270000000).expect(422); // satu penawaran aktif per penyedia
+    await go(proc, ['rfqs', rfq._id], 'evaluation').expect(422); // belum semua masuk & batas waktu belum lewat
+    const q3 = (await quote(v3, 320000000).expect(201)).body;
+    await go(proc, ['rfqs', rfq._id], 'evaluation').expect(200); // semua undangan sudah memasukkan penawaran
+    await request(app).put(`/api/quotations/${q1._id}`).set(A(proc)).send({ items: [{ description: 'Switch', qty: 2, unitPrice: 1 }] }).expect(422); // harga terkunci
+    assert.match((await request(app).get(`/api/quotations/${q3._id}`).set(A(proc))).body.evaluationResult, /HPS/);
+    await request(app).put(`/api/quotations/${q1._id}`).set(A(proc)).send({ technicalScore: 90 }).expect(200);
+    await request(app).put(`/api/quotations/${q2._id}`).set(A(proc)).send({ technicalScore: 70 }).expect(200);
+    rfq = (await request(app).get(`/api/rfqs/${rfq._id}`).set(A(proc)).expect(200)).body;
+    assert.strictEqual(rfq.recommendedVendor._id, String(v1._id)); // skor 92 vs 91
+    assert.strictEqual(rfq.savingsAmount, 20000000);
+    await go(proc, ['rfqs', rfq._id], 'pending_approval', { evaluationNotes: 'BA evaluasi' }).expect(200);
+    await approve(fin, 'rfqs', rfq._id).expect(403); // ketua panitia dulu
+    await approve(arch, 'rfqs', rfq._id).expect(200);
+    rfq = (await approve(fin, 'rfqs', rfq._id).expect(200)).body;
+    assert.strictEqual(rfq.status, 'awarded');
+    assert.ok(rfq.purchaseOrder?.number);
+    assert.strictEqual(rfq.purchaseOrder.subtotal, 280000000);
+    assert.strictEqual((await request(app).get(`/api/quotations/${q1._id}`).set(A(proc))).body.status, 'awarded');
+    assert.strictEqual((await request(app).get(`/api/quotations/${q2._id}`).set(A(proc))).body.status, 'lost');
+    const b = (await request(app).get(`/api/budgets/${bgt._id}`).set(A(fin)).expect(200)).body;
+    assert.strictEqual(b.committedAmount, 340000000);
+    const k = (await request(app).get('/api/kpi').set(A(proc)).expect(200)).body;
+    assert.strictEqual(k.procurement.totals.savings, 20000000);
+    assert.ok(k.procurement.totals.catalogShare > 0);
+  });
+
   await t.test('operator platform memberi/mencabut modul per tenant', async () => {
     const adminS = await login('small-x', 'admin@s.io');
     await request(app).get('/api/budgets').set(A(adminS)).expect(403); // starter: tidak termasuk

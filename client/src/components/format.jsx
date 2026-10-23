@@ -17,17 +17,18 @@ export const refLabel = (v) => {
 const optionLabel = (field, v) => field?.options?.find(([k]) => String(k) === String(v))?.[1];
 
 export const fmtMoney = (v) => `Rp ${Math.round(Number(v) || 0).toLocaleString('id-ID')}`;
-const MONEY_KEYS = /^(amount|total|subtotal|value|estimatedCost|contractValue|purchaseCost|actualCost|committedAmount|actualAmount|availableAmount|taxAmount|paidAmount|totalDebit|totalCredit)$/;
+const MONEY_KEYS = /^(amount|total|subtotal|hpsAmount|unitPrice|recommendedAmount|savingsAmount|catalogTotal|nonCatalogTotal|value|estimatedCost|contractValue|purchaseCost|actualCost|committedAmount|actualAmount|availableAmount|taxAmount|paidAmount|totalDebit|totalCredit)$/;
 
 /** Tabel baris (rincian PO, jurnal) untuk tampilan detail. */
 function LinesView({ field, value }) {
   if (!value?.length) return <span className="muted">—</span>;
+  const cols = field.lines.filter((l) => !l.hidden);
   return (
     <table className="lines-view">
-      <thead><tr>{field.lines.map((l) => <th key={l.key}>{l.label}</th>)}</tr></thead>
+      <thead><tr>{cols.map((l) => <th key={l.key}>{l.label}</th>)}</tr></thead>
       <tbody>
         {value.map((r, i) => (
-          <tr key={i}>{field.lines.map((l) => <td key={l.key} className={l.type === 'number' ? 'num' : ''}>{l.type === 'number' ? (r[l.key] ? Number(r[l.key]).toLocaleString('id-ID') : '') : l.options ? `${r[l.key] || ''} ${l.options.find(([k]) => k === r[l.key])?.[1] || ''}` : r[l.key]}</td>)}</tr>
+          <tr key={i}>{cols.map((l) => <td key={l.key} className={l.type === 'number' ? 'num' : ''}>{l.type === 'number' ? (r[l.key] ? Number(r[l.key]).toLocaleString('id-ID') : '') : l.options ? `${r[l.key] || ''} ${l.options.find(([k]) => k === r[l.key])?.[1] || ''}` : r[l.key]}</td>)}</tr>
         ))}
       </tbody>
     </table>

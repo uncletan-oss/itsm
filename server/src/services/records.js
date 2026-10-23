@@ -9,7 +9,7 @@ const { audit } = require('./audit');
 const { notify } = require('./notify');
 const { applyTransition } = require('./sla');
 const { HttpError } = require('../middleware/error');
-const { CHECKS, EFFECTS, ON_SAVE } = require('../../../shared/effects.mjs');
+const { CHECKS, EFFECTS, ON_SAVE, VALIDATE } = require('../../../shared/effects.mjs');
 const { startRound } = require('../../../shared/approvals.mjs');
 
 const plain = (doc) => (doc?.toObject ? doc.toObject({ depopulate: true }) : doc);
@@ -37,10 +37,12 @@ async function createDoc(req, registry, name, data, { trusted = false } = {}) {
   const def = registry[name];
   const doc = new def.model(data);
   doc.tenant = req.tenant._id;
-  doc.createdBy = req.user._id;
+  // Record buatan sistem boleh diatribusikan ke pelaku proses (mis. RFQ milik petugas procurement penyetuju PR)
+  doc.createdBy = (trusted && data.createdBy) || req.user._id;
   doc.updatedBy = req.user._id;
   if (def.beforeCreate) await def.beforeCreate(doc, req.user);
   if (def.beforeSave) await def.beforeSave(doc, req.user);
+  if (!trusted) await runValidate(req, registry, name, doc, { isNew: true });
   if (def.prefix) doc.number = await nextNumber(req.tenant._id, def.prefix);
   if (doc.schema.path('activities')) {
     doc.activities.push({ type: 'system', message: trusted ? `${def.label} dibuat otomatis oleh sistem` : `${def.label} dibuat`, by: req.user._id, byName: req.user.name });
@@ -56,16 +58,24 @@ async function runOnSave(req, registry, name, doc) {
   if (ON_SAVE[name]) await ON_SAVE[name](plain(doc), makeStore(req, registry));
 }
 
-/** Jalankan cek lintas-record sebelum transisi; perubahan yang dibuat cek (mis. hasil 3-way match) disalin ke dokumen. */
+/** Validasi lintas-record saat create/update (mis. penawaran hanya untuk RFQ yang sedang diumumkan). */
+async function runValidate(req, registry, name, doc, ctx) {
+  if (!VALIDATE[name]) return;
+  const err = await VALIDATE[name](plain(doc), makeStore(req, registry), ctx);
+  if (err) throw new HttpError(422, err);
+}
+
+const CHECK_SKIP = ['_id', 'tenant', 'status', 'approvals', 'activities', 'approvalRound', 'createdBy', 'createdAt', 'updatedAt', 'number'];
+/** Jalankan cek lintas-record sebelum transisi; perubahan yang dibuat cek (mis. hasil 3-way match, harga katalog terkunci) disalin ke dokumen. */
 async function runCheck(req, registry, name, doc, to) {
   const check = CHECKS[name]?.[to];
   if (!check) return;
   const p = plain(doc);
-  const before = JSON.stringify(p);
+  const before = plain(doc);
   const err = await check(p, makeStore(req, registry));
   if (err) throw new HttpError(422, err);
-  if (JSON.stringify(p) !== before) {
-    for (const k of ['vendor', 'matchResult']) if (p[k] !== undefined) doc.set(k, p[k]);
+  for (const [k, v] of Object.entries(p)) {
+    if (!CHECK_SKIP.includes(k) && JSON.stringify(v) !== JSON.stringify(before[k])) doc.set(k, v);
   }
 }
 
@@ -88,4 +98,4 @@ async function transitionDoc(req, registry, name, doc, to, note, { before } = {}
   return doc;
 }
 
-module.exports = { makeStore, createDoc, transitionDoc, runOnSave, plain };
+module.exports = { makeStore, createDoc, transitionDoc, runOnSave, runValidate, plain };

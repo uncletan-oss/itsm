@@ -17,6 +17,7 @@ import Access from './pages/Access.jsx';
 import Users from './pages/Users.jsx';
 import AuditLog from './pages/AuditLog.jsx';
 import Platform from './pages/Platform.jsx';
+import Catalog from './pages/Catalog.jsx';
 
 /** Halaman non-modul dijaga sesuai peran (cermin shared/permissions.mjs PAGES). */
 function Guard({ page, children }) {
@@ -53,6 +54,7 @@ export default function App() {
         <Route path="m/:resource" element={<ResourceList />} />
         <Route path="m/:resource/new" element={<ResourceForm />} />
         <Route path="m/:resource/:id" element={<ResourceDetail />} />
+        <Route path="catalog" element={<Catalog />} />
         <Route path="kpi" element={<Guard page="kpi"><Kpi /></Guard>} />
         <Route path="reports" element={<Guard page="reports"><Reports /></Guard>} />
         <Route path="compliance" element={<Guard page="compliance"><Compliance /></Guard>} />

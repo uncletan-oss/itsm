@@ -237,13 +237,17 @@ for (const [key, def] of Object.entries(MODULE_DEFS)) {
     workflow: def.workflow ? fromSpec(def.workflow) : undefined,
     search: def.search,
     defaultSort: def.defaultSort,
-    populate: def.fields.filter((f) => ['ref', 'refs', 'user'].includes(f.type) || (f.type === 'readonly' && f.store === 'user')).map((f) => f.key),
+    populate: def.fields.filter((f) => ['ref', 'refs', 'user'].includes(f.type) || (f.type === 'readonly' && ['user', 'ref', 'refs'].includes(f.store))).map((f) => f.key),
     scope: def.ownScope ? (u) => (isRequesterOnly(u) ? { createdBy: u._id } : {}) : undefined,
     // Pemilik record boleh melakukan langkah tertentu; peran khusus (mis. verifikator) boleh melakukan langkahnya
     canTransition: def.workflow
       ? (user, doc, to) =>
           (def.workflow.canOwner?.includes(to) && owners.some((f) => same(doc[f], user))) ||
           (!!def.workflow.roles?.[to] && hasRole(user, def.workflow.roles[to]))
+      : undefined,
+    // Field "requester" default ke pembuat record (mis. permintaan pembelian dari pengguna portal)
+    beforeCreate: def.fields.some((f) => f.key === 'requester' && f.type === 'user')
+      ? (doc, user) => { if (isRequesterOnly(user) || !doc.requester) doc.requester = user._id; }
       : undefined,
     beforeSave: def.compute ? (doc) => def.compute(doc) : undefined,
     userRefs: userRefs(def),

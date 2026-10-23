@@ -198,21 +198,21 @@ export function RiskHeatmap({ grid, title }) {
   );
 }
 
-/** Bar anggaran: pagu vs komitmen vs realisasi. */
-export function BudgetBars({ rows, format }) {
+/** Bar anggaran: pagu vs komitmen vs realisasi (legend 2 label → batas vs nilai, mis. HPS vs pemenang). */
+export function BudgetBars({ rows, format, legend }) {
   const max = Math.max(1, ...rows.map((r) => r.amount));
   return (
     <div className="stack" style={{ gap: 12 }}>
       {rows.map((r) => (
         <div key={r._id || r.name}>
-          <div className="row between small"><span className="nowrap" style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '60%' }}>{r.name}</span><span className="muted">{format(r.actual)} / {format(r.amount)}</span></div>
+          <div className="row between small"><span className="nowrap" style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '60%' }}>{r.name}</span><span className="muted">{format(legend ? r.committed : r.actual)} / {format(r.amount)}</span></div>
           <div className="budget-track" style={{ width: `${(r.amount / max) * 100}%` }}>
             <span className="budget-committed" style={{ width: `${Math.min(100, (r.committed / (r.amount || 1)) * 100)}%` }} />
             <span className="budget-actual" style={{ width: `${Math.min(100, (r.actual / (r.amount || 1)) * 100)}%` }} />
           </div>
         </div>
       ))}
-      <div className="chart-legend"><span><i style={{ background: 'var(--gray-bg)', border: '1px solid var(--border-strong)' }} />Pagu</span><span><i style={{ background: 'var(--chart-2)' }} />Terkomitmen (PO)</span><span><i style={{ background: 'var(--chart-1)' }} />Realisasi</span></div>
+      <div className="chart-legend"><span><i style={{ background: 'var(--gray-bg)', border: '1px solid var(--border-strong)' }} />{legend?.[0] || 'Pagu'}</span><span><i style={{ background: 'var(--chart-2)' }} />{legend?.[1] || 'Terkomitmen (PO)'}</span>{!legend && <span><i style={{ background: 'var(--chart-1)' }} />Realisasi</span>}</div>
     </div>
   );
 }

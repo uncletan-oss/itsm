@@ -8,13 +8,22 @@ import { Badge, FormatValue, fmtDateTime } from './format.jsx';
 import ResourceForm, { FormFields, sectionsFor, toPayload } from './ResourceForm.jsx';
 import Icon from './Icon.jsx';
 import { Empty, Modal, Tabs, initials, usePopover, useToast } from './ui.jsx';
+import { AddToCart, QuotationCompare } from './ProcurementPanels.jsx';
 import { APPROVALS, approvalError, approvalProgress } from '../../../shared/approvals.mjs';
 import { SPAWN } from '../../../shared/effects.mjs';
 import { MODULE_DEFS } from '../../../shared/modules.mjs';
 import { ROLES } from '../../../shared/roles.mjs';
 
-const NEGATIVE = ['cancelled', 'rejected'];
-const transitionLabel = (from, to) => {
+const NEGATIVE = ['cancelled', 'rejected', 'withdrawn', 'disqualified', 'failed', 'suspended'];
+// Label aksi khusus per modul (mis. RFQ: "Buka penawaran" alih-alih nama status)
+const ACTION_LABELS = {
+  rfqs: { published: 'Umumkan & kirim undangan', evaluation: 'Buka penawaran & evaluasi', pending_approval: 'Usulkan pemenang', failed: 'Nyatakan gagal', draft: 'Tender ulang' },
+  'catalog-items': { pending_approval: 'Ajukan penayangan', draft: 'Revisi harga / spesifikasi', suspended: 'Tangguhkan', retired: 'Tarik dari katalog' },
+  requisitions: { pending_approval: 'Ajukan PR', completed: 'Tandai selesai' },
+  quotations: { withdrawn: 'Tarik penawaran', disqualified: 'Diskualifikasi' },
+};
+const transitionLabel = (from, to, resource) => {
+  if (ACTION_LABELS[resource]?.[to]) return ACTION_LABELS[resource][to];
   if (to === 'in_progress' && ['resolved', 'pending'].includes(from)) return from === 'resolved' ? 'Buka kembali' : 'Lanjutkan';
   if (to === 'draft' && from !== 'draft') return 'Kembalikan ke draft';
   return STATUS_LABELS[to] || to;
@@ -73,6 +82,8 @@ export default function ResourceDetail() {
     transitions = transitions.filter((t) =>
       spec ? (mine && spec.canOwner?.includes(t)) || (spec.roles?.[t] && hasRole(...spec.roles[t])) : mine && ['cancelled', 'closed', 'in_progress'].includes(t));
   }
+  // Status yang diisi otomatis oleh sistem (mis. PR "Dalam Pengadaan") tidak ditawarkan sebagai tombol
+  transitions = transitions.filter((t) => !spec?.viaEffect?.includes(t));
   // Keputusan persetujuan diambil di panel persetujuan, bukan tombol transisi
   if (policy && doc.status === policy.status) transitions = transitions.filter((t) => ![policy.approved, policy.rejected].includes(t));
   const spawns = (SPAWN[resource] || []).filter((r) => can(r.target, 'create'));
@@ -120,9 +131,10 @@ export default function ResourceDetail() {
         <div className="row end">
           {transitions.map((t) => (
             <button key={t} className={`btn ${NEGATIVE.includes(t) ? 'btn-danger' : ''}`} onClick={() => setTransition(t)}>
-              {!NEGATIVE.includes(t) && <Icon name="arrowRight" size="sm" />}{transitionLabel(doc.status, t)}
+              {!NEGATIVE.includes(t) && <Icon name="arrowRight" size="sm" />}{transitionLabel(doc.status, t, resource)}
             </button>
           ))}
+          {resource === 'catalog-items' && <AddToCart item={doc} />}
           {spawns.length > 0 && <SpawnMenu resource={resource} id={doc._id} spawns={spawns} />}
           {canWrite && !editing && <button className="btn btn-primary" onClick={() => { setEditing(true); setTab('detail'); }}><Icon name="edit" size="sm" />Edit</button>}
           {canRemove && <button className="btn btn-danger btn-icon" onClick={remove} title="Hapus" aria-label="Hapus"><Icon name="trash" size="sm" /></button>}
@@ -140,6 +152,7 @@ export default function ResourceDetail() {
       <div className="detail-layout">
         <div>
           {policy && <ApprovalPanel resource={resource} policy={policy} doc={doc} user={user} act={act} />}
+          {resource === 'rfqs' && <QuotationCompare rfq={doc} version={doc.updatedAt} />}
           <Tabs value={tab} onChange={setTab} tabs={[['detail', 'Detail'], !mod.noActivity && ['activity', 'Aktivitas', activities.length], ['related', 'Terkait', relatedCount]].filter(Boolean)} />
           {tab === 'detail' && (editing ? (
             <ResourceForm existing={doc} onSaved={() => { setEditing(false); load(); }} onCancel={() => setEditing(false)} />

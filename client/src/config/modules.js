@@ -411,7 +411,7 @@ export const MODULES = {
   },
 };
 
-export const NAV_GROUPS = ['Service Management', 'Aset & Konfigurasi', 'Data Center (DCIM)', 'Vendor & Keuangan TI', 'GRC & Assurance', 'Ketahanan (BCM & DR)', 'Perencanaan & Arsitektur'];
+export const NAV_GROUPS = ['Service Management', 'Aset & Konfigurasi', 'Data Center (DCIM)', 'E-Procurement', 'Vendor & Keuangan TI', 'GRC & Assurance', 'Ketahanan (BCM & DR)', 'Perencanaan & Arsitektur'];
 
 /** Pengelompokan field di formulir (field yang tidak tercantum masuk ke bagian "Detail lainnya"). */
 export const FORM_SECTIONS = {

@@ -19,6 +19,8 @@ export const STATUS_LABELS = {
   concluded: 'Disimpulkan', commissioning: 'Commissioning', operational: 'Operasional', decommissioned: 'Dinonaktifkan', full: 'Penuh',
   checked_in: 'Check-in', checked_out: 'Check-out', proposed: 'Diusulkan', in_execution: 'Dieksekusi', delivered: 'Selesai Dikirim',
   pending_disposal: 'Menunggu Disposal', in_build: 'Pembangunan',
+  suspended: 'Ditangguhkan', in_procurement: 'Dalam Pengadaan', evaluation: 'Evaluasi', awarded: 'Pemenang Ditetapkan', failed: 'Gagal',
+  evaluated: 'Dievaluasi', lost: 'Tidak Terpilih', withdrawn: 'Ditarik', disqualified: 'Didiskualifikasi',
 };
 
 export const STATUS_TONE = {
@@ -36,6 +38,8 @@ export const STATUS_TONE = {
   action_plan: 'indigo', in_remediation: 'amber', concluded: 'green', commissioning: 'indigo', operational: 'green',
   decommissioned: 'gray', full: 'amber', checked_in: 'indigo', checked_out: 'green', proposed: 'blue', in_execution: 'indigo',
   delivered: 'green', in_build: 'indigo',
+  suspended: 'amber', in_procurement: 'indigo', evaluation: 'indigo', awarded: 'green', failed: 'red', evaluated: 'teal', lost: 'gray',
+  withdrawn: 'gray', disqualified: 'red',
 };
 
 export const PRIORITY_LABELS = { 1: 'P1 - Kritis', 2: 'P2 - Tinggi', 3: 'P3 - Sedang', 4: 'P4 - Rendah' };

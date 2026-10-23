@@ -167,7 +167,7 @@ export function computeMyWork(data, user, { hasRole, canRead }) {
     for (const d of data[res] || []) {
       if (d.status !== policy.status || approvalError(policy, d, user)) continue;
       const step = approvalProgress(policy, d).current;
-      approvals.push({ ...brief(res, d), kind: `${policy.label} · ${step.name}`, amount: d.total ?? d.amount ?? d.value });
+      approvals.push({ ...brief(res, d), kind: `${policy.label} · ${step.name}`, amount: d.total ?? d.amount ?? d.value ?? d.subtotal ?? d.recommendedAmount ?? d.unitPrice });
     }
   }
   if (canRead('knowledge') && hasRole(user, ['knowledge_manager'])) {

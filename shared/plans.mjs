@@ -7,12 +7,13 @@ export const DOMAINS = {
   grc: { name: 'GRC & Assurance', modules: ['vendors', 'contracts', 'risks', 'risk-actions', 'controls', 'control-tests', 'findings'] },
   bcm: { name: 'Ketahanan (BCM & DR)', modules: ['bia', 'continuity', 'dr-tests'] },
   dcim: { name: 'Data Center (DCIM)', modules: ['datacenters', 'racks', 'dc-access'] },
+  procurement: { name: 'E-Procurement', modules: ['catalog-items', 'requisitions', 'rfqs', 'quotations'] },
   finance: { name: 'Keuangan TI (ITFM)', modules: ['budgets', 'purchase-orders', 'invoices', 'payments', 'journals'] },
   planning: { name: 'Arsitektur & Perencanaan', modules: ['initiatives', 'architecture', 'projects', 'sprints', 'backlog'] },
 };
 const CORE = DOMAINS.core.modules;
 const GRC = [...DOMAINS.grc.modules, ...DOMAINS.bcm.modules];
-const EA = [...DOMAINS.dcim.modules, ...DOMAINS.finance.modules, ...DOMAINS.planning.modules];
+const EA = [...DOMAINS.dcim.modules, ...DOMAINS.procurement.modules, ...DOMAINS.finance.modules, ...DOMAINS.planning.modules];
 export const ALL_MODULES = Object.values(DOMAINS).flatMap((d) => d.modules);
 
 export const PLANS = {
@@ -29,7 +30,7 @@ export const PLANS = {
   enterprise: {
     name: 'Enterprise', price: 'Hubungi kami', maxUsers: null, modules: [...CORE, ...GRC, ...EA],
     summary: 'Platform lengkap: ITSM, GRC, DCIM, keuangan TI, arsitektur & portofolio.',
-    features: ['Semua fitur Professional', 'Keuangan TI: anggaran, PO, tagihan, pembayaran, jurnal', 'DCIM: data center, rak & akses fisik', 'Perencanaan TI, TOGAF, proyek & Scrum'],
+    features: ['Semua fitur Professional', 'E-Procurement: e-katalog, permintaan pembelian, RFQ/tender & evaluasi penawaran', 'Keuangan TI: anggaran, PO, tagihan, pembayaran, jurnal', 'DCIM: data center, rak & akses fisik', 'Perencanaan TI, TOGAF, proyek & Scrum'],
   },
 };
 

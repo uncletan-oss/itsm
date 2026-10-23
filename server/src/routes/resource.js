@@ -6,7 +6,7 @@ const { audit, diff } = require('../services/audit');
 const { notify } = require('../services/notify');
 const { checkTransition } = require('../services/workflows');
 const { slaStatus } = require('../services/sla');
-const { createDoc, transitionDoc, runOnSave, plain } = require('../services/records');
+const { createDoc, transitionDoc, runOnSave, runValidate, plain } = require('../services/records');
 const { approvalError, decide } = require('../../../shared/approvals.mjs');
 const { spawnPrefill, spawnRule } = require('../../../shared/effects.mjs');
 
@@ -189,6 +189,7 @@ module.exports = function buildResourceRouter(name, def, registry) {
       doc.set(updates);
       doc.updatedBy = req.user._id;
       if (def.beforeSave) await def.beforeSave(doc, req.user);
+      await runValidate(req, registry, name, doc, { isNew: false, before });
       const changes = diff(before, doc.toObject(), [...Object.keys(updates), 'priority']);
       await doc.save();
       if (Object.keys(changes).length) await audit(req, 'update', name, doc, changes);

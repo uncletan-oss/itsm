@@ -64,7 +64,7 @@ module.exports = function buildInsightsRouter(registry) {
       const since = new Date(Date.now() - (period + 1) * 31 * 864e5);
       const recentOrOpen = () => ({ $or: [{ createdAt: { $gte: since } }, { updatedAt: { $gte: since } }, { status: { $nin: ['closed', 'cancelled'] } }] });
       const data = await loadAll(req, ['incidents', 'changes', 'requests', 'problems'], recentOrOpen);
-      Object.assign(data, await loadAll(req, ['budgets', 'invoices', 'payments', 'risks', 'controls', 'findings', 'risk-actions', 'control-tests', 'datacenters', 'racks', 'dc-access', 'continuity', 'bia', 'dr-tests', 'services', 'assets', 'vendors', 'contracts']));
+      Object.assign(data, await loadAll(req, ['budgets', 'invoices', 'payments', 'risks', 'controls', 'findings', 'risk-actions', 'control-tests', 'datacenters', 'racks', 'dc-access', 'continuity', 'bia', 'dr-tests', 'services', 'assets', 'vendors', 'contracts', 'purchase-orders', 'catalog-items', 'requisitions', 'rfqs']));
       res.json(computeKpi(data, { period }));
     })
   );

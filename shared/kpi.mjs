@@ -88,6 +88,51 @@ export function computeKpi(data, { now = new Date(), period = 6 } = {}) {
     };
   }
 
+  const pos = data['purchase-orders'];
+  const catalog = data['catalog-items'];
+  const { requisitions, rfqs } = data;
+  if (pos || rfqs || requisitions || catalog) {
+    const committed = (pos || []).filter((p) => ['approved', 'ordered', 'received', 'closed'].includes(p.status));
+    const recent = committed.filter((p) => t(p.createdAt) >= M[0].start);
+    const value = (xs) => sum(xs, (p) => p.subtotal);
+    const COMPETITIVE = ['rfq', 'limited_tender', 'open_tender'];
+    const awarded = (rfqs || []).filter((r) => r.status === 'awarded');
+    const vendorName = Object.fromEntries((data.vendors || []).map((v) => [id(v._id), v.name]));
+    const byVendor = {};
+    for (const p of recent) byVendor[id(p.vendor)] = (byVendor[id(p.vendor)] || 0) + (p.subtotal || 0);
+    const processed = (requisitions || []).filter((r) => ['in_procurement', 'completed'].includes(r.status) && (r.approvals || []).length);
+    const cycle = processed.map((r) => (Math.max(...r.approvals.map((a) => t(a.at))) - t(r.createdAt)) / DAY).filter((x) => x >= 0);
+    const series = (fn) => M.map((m) => ({ key: m.key, label: m.label, value: fn(m) }));
+    const items = catalog || [];
+    out.procurement = {
+      totals: {
+        poValue: value(recent),
+        catalogShare: pct(value(recent.filter((p) => p.sourcing === 'catalog')), value(recent)),
+        competitiveShare: pct(value(recent.filter((p) => COMPETITIVE.includes(p.sourcing))), value(recent.filter((p) => [...COMPETITIVE, 'direct'].includes(p.sourcing)))),
+        savings: sum(awarded, (r) => r.savingsAmount),
+        savingsPct: pct(sum(awarded, (r) => r.savingsAmount), sum(awarded, (r) => r.hpsAmount)),
+        avgBids: avg((rfqs || []).filter((r) => r.quotationCount).map((r) => r.quotationCount)),
+        prCycleDays: avg(cycle),
+        catalogPublished: items.filter((c) => c.status === 'published').length,
+        catalogExpiring30d: items.filter((c) => c.status === 'published' && c.validUntil && t(c.validUntil) - nowMs <= 30 * DAY).length,
+        prPending: (requisitions || []).filter((r) => r.status === 'pending_approval').length,
+        rfqOpen: (rfqs || []).filter((r) => ['published', 'evaluation', 'pending_approval'].includes(r.status)).length,
+      },
+      bySourcing: Object.fromEntries(Object.entries(countBy(recent, (p) => p.sourcing || 'contract')).map(([k]) => [k, value(recent.filter((p) => (p.sourcing || 'contract') === k))])),
+      rfqByStatus: rfqs ? countBy(rfqs, (r) => r.status) : null,
+      prByStatus: requisitions ? countBy(requisitions, (r) => r.status) : null,
+      catalogByCategory: catalog ? countBy(items.filter((c) => c.status === 'published'), (c) => c.category) : null,
+      topVendors: Object.entries(byVendor).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([v, amount]) => ({ _id: v, name: vendorName[v] || 'Penyedia', amount })),
+      savingsByRfq: awarded.map((r) => ({ _id: id(r._id), name: r.title, hps: r.hpsAmount || 0, awarded: r.recommendedAmount || 0 })),
+      kpis: [
+        kpi('Nilai PO terbit / bulan (Rp)', series((m) => value(committed.filter((p) => inM(m, p.createdAt)))), { better: 'neutral', format: 'money' }),
+        kpi('Porsi belanja e-katalog', series((m) => pct(value(committed.filter((p) => p.sourcing === 'catalog' && inM(m, p.createdAt))), value(committed.filter((p) => inM(m, p.createdAt))))), { unit: '%' }),
+        kpi('Penghematan tender (Rp)', series((m) => sum(awarded.filter((r) => inM(m, r.updatedAt)), (r) => r.savingsAmount)), { format: 'money' }),
+        ...(requisitions ? [kpi('PR diajukan / bulan', series((m) => requisitions.filter((r) => r.status !== 'draft' && inM(m, r.createdAt)).length), { better: 'neutral' })] : []),
+      ],
+    };
+  }
+
   const { risks, controls, findings } = data;
   const riskActions = data['risk-actions'];
   const controlTests = data['control-tests'];

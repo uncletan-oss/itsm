@@ -52,17 +52,18 @@ function RefSelect({ path, value, onChange, multiple, labelField }) {
 /** Editor baris (mis. rincian PO, baris jurnal) — sub-field: text | number | select. */
 function LinesEditor({ field, value, onChange }) {
   const rows = Array.isArray(value) ? value : [];
+  const cols = field.lines.filter((l) => !l.hidden);
   const set = (i, k, v) => onChange(rows.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
   const sum = (k) => rows.reduce((s, r) => s + (Number(r[k]) || 0), 0);
   const numeric = field.lines.filter((l) => l.type === 'number' && /debit|credit/.test(l.key));
   return (
     <div className="lines">
       <table>
-        <thead><tr>{field.lines.map((l) => <th key={l.key}>{l.label}</th>)}<th /></tr></thead>
+        <thead><tr>{cols.map((l) => <th key={l.key}>{l.label}</th>)}<th /></tr></thead>
         <tbody>
           {rows.map((r, i) => (
             <tr key={i}>
-              {field.lines.map((l) => (
+              {cols.map((l) => (
                 <td key={l.key}>
                   {l.type === 'select' ? (
                     <select value={r[l.key] ?? ''} onChange={(e) => set(i, l.key, e.target.value)}>
@@ -79,7 +80,7 @@ function LinesEditor({ field, value, onChange }) {
           ))}
           {numeric.length > 0 && rows.length > 0 && (
             <tr className="lines-total">
-              {field.lines.map((l) => <td key={l.key}>{numeric.includes(l) ? sum(l.key).toLocaleString('id-ID') : ''}</td>)}<td />
+              {cols.map((l) => <td key={l.key}>{numeric.includes(l) ? sum(l.key).toLocaleString('id-ID') : ''}</td>)}<td />
             </tr>
           )}
         </tbody>
