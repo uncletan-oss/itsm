@@ -47,6 +47,7 @@ export function FormatValue({ name, value, field }) {
   if ((name === 'priority' || fmt === 'priority') && typeof value === 'number')
     return <Badge tone={['', 'red', 'orange', 'amber', 'green'][value]}>{PRIORITY_LABELS[value]}</Badge>;
   if (fmt === 'level' || /Level$|^criticality$|^riskRating$|^risk$/.test(name)) return <Badge tone={LEVEL_TONE[value] || 'gray'}>{optionLabel(field, value) || value}</Badge>;
+  if (fmt === 'registeredVia') return value === 'self_service' ? <Badge tone="indigo">Registrasi mandiri (portal penyedia)</Badge> : 'Didaftarkan internal';
   if (name === 'health') return <Badge tone={{ green: 'green', amber: 'amber', red: 'red' }[value]}>{value}</Badge>;
   if (typeof value === 'boolean' || fmt === 'bool') return value ? '✔ Ya' : 'Tidak';
   if (Array.isArray(value)) return value.length ? value.map((x) => refLabel(x)).join(', ') : <span className="muted">—</span>;

@@ -35,7 +35,7 @@
 .pub-search { display: flex; gap: 8px; max-width: 640px; }
 .pub-search input { padding: 12px 14px; font-size: 15px; }
 .pub-hero .pub-search input { border: 0; }
-.pub-cta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 28px; }
+.pub-cta { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-top: 28px; }
 .pub-cta-card { display: flex; gap: 14px; align-items: center; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.16); border-radius: 12px; padding: 16px; color: #fff; text-decoration: none !important; transition: background .15s; }
 .pub-cta-card:hover { background: rgba(255,255,255,.13); }
 .pub-cta-card b, .pub-cta-card small { display: block; }
@@ -91,7 +91,7 @@
 .pub-controls li { margin-bottom: 4px; }
 
 .pub-footer { background: var(--ink); color: var(--ink-text); padding: 40px 0 28px; margin-top: 24px; }
-.pub-footer-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 28px; }
+.pub-footer-grid { display: grid; grid-template-columns: 2fr repeat(auto-fit, minmax(150px, 1fr)); gap: 28px; }
 .pub-footer-grid a { display: block; color: var(--ink-text); margin-top: 8px; }
 
 @media (max-width: 960px) {

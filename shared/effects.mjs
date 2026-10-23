@@ -345,6 +345,17 @@ async function rfqAwarded(rfq, store) {
   if (pr) await store.update('requisitions', id(pr._id), { processingNotes: `${pr.processingNotes || ''}; ${rfq.number} dimenangkan ${name(vendor)} → ${po.number}`.replace(/^; /, '') }, `${rfq.number} ditetapkan: ${po.number}`);
 }
 
+/**
+ * Sampul tertutup: sebelum pembukaan penawaran, harga penawaran tidak ditampilkan kepada siapa pun di pihak pembeli.
+ * Dipakai router resource (server & demo) setelah populate (rfq berupa objek).
+ */
+export function sealQuotation(q) {
+  const status = q?.rfq && typeof q.rfq === 'object' ? q.rfq.status : null;
+  if (status !== 'published') return q;
+  const { subtotal, taxAmount, total, ...rest } = q;
+  return { ...rest, items: (q.items || []).map((l) => ({ description: l.description, qty: l.qty })), sealed: true };
+}
+
 /** Validasi saat create/update (bukan transisi). */
 export const VALIDATE = {
   quotations: async (q, store, { isNew, before }) => {
@@ -353,9 +364,13 @@ export const VALIDATE = {
     const sig = (d) => JSON.stringify([id(d?.vendor), (d?.items || []).map((l) => [l.description || '', Number(l.qty || 0), Number(l.unitPrice || 0)])]);
     const priceChanged = isNew || sig(before) !== sig(q);
     if (!priceChanged) return null;
-    if (rfq.status !== 'published') return isNew ? `Penawaran hanya dapat dimasukkan saat ${rfq.number} sedang diumumkan (status: ${rfq.status})` : 'Harga & penyedia terkunci setelah pembukaan penawaran';
+    // Harga penawaran tidak dapat diubah setelah masuk (sampul tertutup) — tarik lalu ajukan penawaran baru
+    if (!isNew) return rfq.status === 'published' ? 'Harga & penyedia penawaran tidak dapat diubah; tarik penawaran lalu ajukan yang baru' : 'Harga & penyedia terkunci setelah pembukaan penawaran';
+    if (rfq.status !== 'published') return `Penawaran hanya dapat dimasukkan saat ${rfq.number} sedang diumumkan (status: ${rfq.status})`;
     if (rfq.closingDate && new Date(rfq.closingDate) < new Date()) return 'Batas waktu pemasukan penawaran telah lewat';
     if (rfq.method !== 'open_tender' && !(rfq.invitedVendors || []).map(id).includes(id(q.vendor))) return 'Penyedia ini tidak termasuk daftar undangan';
+    const vendor = await store.get('vendors', id(q.vendor));
+    if (!vendor || (vendor.status && vendor.status !== 'active')) return 'Hanya penyedia terverifikasi (aktif) yang dapat memasukkan penawaran';
     const dup = (await store.find('quotations', { rfq: id(rfq._id), vendor: id(q.vendor), status: { $in: LIVE_QUOTES } })).filter((x) => id(x._id) !== id(q._id));
     if (dup.length) return `Penyedia sudah memasukkan penawaran ${dup[0].number}; tarik (withdraw) penawaran lama terlebih dahulu`;
     return null;

@@ -48,7 +48,7 @@ async function baseTenant(api, { slug, name, industry, plan, people }) {
 }
 
 async function seedBank(api) {
-  const { u, svc, make, moveTo, assess, store } = await baseTenant(api, { slug: 'bank-nusantara', name: 'PT Bank Nusantara Sejahtera', industry: 'banking', plan: 'enterprise' });
+  const { tenant, u, svc, make, moveTo, assess, store } = await baseTenant(api, { slug: 'bank-nusantara', name: 'PT Bank Nusantara Sejahtera', industry: 'banking', plan: 'enterprise' });
   const vCloud = await make('vendors', {
     name: 'PT Awan Data Indonesia', category: 'cloud', criticality: 'critical', contractNumber: 'KTR/2025/014', contractStart: days(-300), contractEnd: days(60),
     dueDiligenceDate: days(-320), dueDiligenceResult: 'passed', certifications: ['ISO 27001', 'SOC 2 Type II'], rightToAudit: true,
@@ -146,7 +146,11 @@ async function seedBank(api) {
   await make('backlog', { title: 'Migrasi modul deposito', storyPoints: 13, itemType: 'epic', project: prj._id }, u.pm);
   assess(['SM-INC', 'SM-CHG', 'SM-REQ', 'SM-ITAM', 'GV.RR', 'ID.AM', 'RS.MA', 'A.8.15', 'A.8.32', 'PADK-OPS', 'PADK-3P', 'TI-3P', 'TI-AUD'], ['SM-PRB', 'SM-SCON', 'ID.RA', 'PADK-RSK', 'PADK-BCP', 'TI-DRP', 'PDP-05', 'A.5.19'], u.risk);
   // Modul lanjutan — data yang sama dengan seed server (shared/seed-extra.mjs)
-  await seedExtended(store, { u, refs: { vCloud, vSoft, svcCore, svcMobile, svcEmail, ciDb, ciApp, plan, project: prj, riskCloud, riskRansom, riskData } });
+  const ext = await seedExtended(store, { u, refs: { vCloud, vSoft, svcCore, svcMobile, svcEmail, ciDb, ciApp, plan, project: prj, riskCloud, riskRansom, riskData } });
+  // Akun portal penyedia (vendor self-service)
+  for (const [key, name, vendor] of [['supplier', 'Hendra (PT Mitra Perangkat Komputindo)', ext.vHw], ['supplier2', 'Yuni (PT Solusi Jaringan Prima)', ext.vNet], ['supplier3', 'Rahmat (PT Digital Solusi Mandiri)', ext.vNew]]) {
+    api.db.users.push({ _id: api.newId(), tenant: tenant._id, name, email: `${key}@itsm.local`, password: DEMO_PASSWORD, roles: ['supplier'], vendor: vendor._id, title: 'Akun portal penyedia', active: true, createdAt: new Date().toISOString() });
+  }
 }
 
 async function seedHospital(api) {

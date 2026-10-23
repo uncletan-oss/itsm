@@ -73,7 +73,7 @@ export async function seedExtended(store, { u, refs }) {
 
   // ---------------- E-Procurement: e-katalog, PR, RFQ/tender ----------------
   const vendor = (data) => make('vendors', { criticality: 'medium', dueDiligenceResult: 'passed', riskRating: 'low', dataLocation: 'Indonesia', status: 'active', ...data });
-  const vHw = await vendor({ name: 'PT Mitra Perangkat Komputindo', category: 'hardware', contactName: 'Hendra', contactEmail: 'sales@mitrakomputindo.co.id' });
+  const vHw = await vendor({ name: 'PT Mitra Perangkat Komputindo', category: 'hardware', contactName: 'Hendra', contactEmail: 'supplier@itsm.local', npwp: '02.345.678.9-012.000', nib: '8120009876543', phone: '021-4440987', address: 'Jl. Mangga Dua Raya No. 8, Jakarta Utara', bankName: 'Bank Mandiri', bankAccount: '1230004567890', bankAccountName: 'PT Mitra Perangkat Komputindo', certifications: ['ISO 9001'] });
   const vNet = await vendor({ name: 'PT Solusi Jaringan Prima', category: 'network', contactName: 'Yuni' });
   const vAudit = await vendor({ name: 'PT Siber Audit Indonesia', category: 'consulting', contactName: 'Fajar' });
   const fa = (data) => make('contracts', { contractType: 'msa', owner: id(u.vendor._id), startDate: days(-90), endDate: days(275), rightToAudit: true, dataLocation: 'Indonesia', status: 'active', legalNotes: 'Kontrak payung harga satuan (framework agreement)', slaTerms: 'Pengiriman sesuai lead time katalog; denda keterlambatan 1‰/hari', ...data });
@@ -132,6 +132,15 @@ export async function seedExtended(store, { u, refs }) {
 
   const rPentest = await rfq({ title: 'Jasa penetration test aplikasi mobile banking', method: 'rfq', budget: id(B.sec), hpsAmount: 250000000, closingDate: days(6), invitedVendors: [id(vAudit), id(vNet), id(vSoft)], items: [{ description: 'Pentest black/grey box aplikasi mobile & API', qty: 1, unit: 'paket' }], status: 'published' });
   await quote(rPentest, vAudit, 210000000, null, { technicalScore: undefined, deliveryDays: 21, warrantyMonths: 0 });
+  await rfq({ title: 'Perangkat Wi-Fi kantor cabang (50 AP)', method: 'rfq', budget: id(B.infra), hpsAmount: 450000000, closingDate: days(4), invitedVendors: [id(vHw), id(vNet), id(vSoft)], items: [{ description: 'Access point Wi-Fi 6 enterprise + lisensi kontroler 3 tahun', qty: 50, unit: 'unit' }, { description: 'Jasa instalasi & site survey', qty: 1, unit: 'paket' }], status: 'published' });
+
+  // Portal penyedia: PO pemenang tender sudah dikirim & diterima, lalu ditagih penyedia melalui portal
+  const poBackup = (await store.find('purchase-orders', { rfq: id(rBackup) }))[0];
+  if (poBackup) {
+    await store.update('purchase-orders', id(poBackup), { status: 'received', supplierAckAt: days(-30), supplierPromisedDate: days(-15), shippedAt: days(-16), deliveryNote: 'SJ/MPK/2026/0412 — 2 unit backup appliance', receivedDate: days(-14), receivedNotes: 'BAST No. 131/IT/2026' });
+    await make('invoices', { vendorInvoiceNo: 'MPK/INV/2026/0388', taxInvoiceNo: '010.000-26.00000388', purchaseOrder: id(poBackup), vendor: id(vHw), invoiceDate: days(-3), amount: 690000000, taxRate: 11, description: 'Backup appliance immutable (diajukan melalui portal penyedia)', status: 'received' });
+  }
+  const vNew = await make('vendors', { name: 'PT Digital Solusi Mandiri', category: 'software', npwp: '01.234.567.8-901.000', nib: '9120001234567', contactName: 'Rahmat', contactEmail: 'supplier3@itsm.local', phone: '021-5550123', address: 'Jl. Gatot Subroto No. 10, Jakarta', dataLocation: 'Indonesia', status: 'prospect', registeredVia: 'self_service', profileUpdatedAt: days(-2) });
   await rfq({ title: 'Lisensi SIEM & managed detection', method: 'direct', budget: id(B.sec), hpsAmount: 950000000, items: [{ description: 'Lisensi SIEM 1 tahun', qty: 1, unit: 'paket' }], status: 'draft', invitedVendors: [id(vSoft)], directJustification: 'Lanjutan implementasi platform yang sama (kompatibilitas teknis)' });
 
   // ---------------- GRC & assurance ----------------
@@ -194,5 +203,5 @@ export async function seedExtended(store, { u, refs }) {
   await ini({ title: 'SIEM & SOC 24x7', category: 'regulatory', regulatoryDriver: 'POJK 11/2022 — ketahanan & keamanan siber', strategicAlignment: 5, businessValue: 4, urgency: 5, deliveryRisk: 3, estimatedCost: 3200000000, targetQuarter: `${year}-Q4`, objective: 'Deteksi & respons insiden 24x7', businessCase: 'Kepatuhan & penurunan dampak insiden', architectureNotes: 'Managed SOC + SIEM cloud', status: 'approved', approvals: [appr('Enterprise Architect', u.architect), appr('Finance (estimasi biaya)', u.finance), appr('IT Steering Committee', u.executive)], approvalRound: 1 });
   await ini({ title: 'Open API standar SNAP untuk mitra', category: 'regulatory', regulatoryDriver: 'Standar Nasional Open API Pembayaran (BI)', strategicAlignment: 4, businessValue: 4, urgency: 3, deliveryRisk: 3, estimatedCost: 2200000000, targetQuarter: `${year + 1}-Q2`, objective: 'Integrasi mitra fintech', businessCase: 'Pendapatan fee berbasis API', status: 'assessment' });
   await ini({ title: 'Otomasi pelaporan TI ke regulator', category: 'run', strategicAlignment: 3, businessValue: 3, urgency: 3, deliveryRisk: 2, estimatedCost: 450000000, targetQuarter: `${year + 1}-Q3`, objective: 'Mengurangi pekerjaan manual pelaporan', status: 'proposed' });
-  return { vSec, vHw, vNet, vAudit };
+  return { vSec, vHw, vNet, vAudit, vNew };
 }

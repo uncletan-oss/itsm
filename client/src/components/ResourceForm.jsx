@@ -79,6 +79,8 @@ export default function ResourceForm({ existing, onSaved, onCancel }) {
     try {
       const body = toPayload(mod.fields, values);
       if (!existing) for (const k of Object.keys(body)) if (body[k] === null || (Array.isArray(body[k]) && !body[k].length)) delete body[k];
+      // Penawaran tersegel: harga tidak dikirim balik (tidak dapat diubah sebelum pembukaan)
+      if (existing?.sealed) for (const k of ['items', 'taxRate', 'vendor', 'rfq']) delete body[k];
       const saved = existing
         ? await api(`/${resource}/${existing._id}`, { method: 'PUT', body })
         : await api(`/${resource}`, { method: 'POST', body: spawnFrom ? { ...body, _spawnFrom: spawnFrom } : body });

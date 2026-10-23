@@ -42,6 +42,10 @@ export default function TenantHome() {
               <span className="kpi-ic" style={{ color: `var(--${STATUS[ov || 'operational'][1]})` }}><Icon name="status" /></span>
               <span><b>Status layanan</b><small>{ov ? OVERALL_TEXT[ov] : 'Memuat…'}</small></span>
             </Link>
+            <Link className="pub-cta-card" to={`${base}/penyedia`}>
+              <span className="kpi-ic"><Icon name="briefcase" /></span>
+              <span><b>Portal penyedia</b><small>Registrasi vendor, tender & e-invoice</small></span>
+            </Link>
           </div>
         </div>
       </section>

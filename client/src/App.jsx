@@ -18,6 +18,7 @@ import Users from './pages/Users.jsx';
 import AuditLog from './pages/AuditLog.jsx';
 import Platform from './pages/Platform.jsx';
 import Catalog from './pages/Catalog.jsx';
+import { SupplierCatalog, SupplierHome, SupplierInvoices, SupplierOrders, SupplierProfile, SupplierQuotations, SupplierRfq, SupplierRfqs } from './pages/SupplierPortal.jsx';
 
 /** Halaman non-modul dijaga sesuai peran (cermin shared/permissions.mjs PAGES). */
 function Guard({ page, children }) {
@@ -26,7 +27,7 @@ function Guard({ page, children }) {
 }
 
 export default function App() {
-  const { user, loading, isPlatform } = useAuth();
+  const { user, loading, isPlatform, isSupplier } = useAuth();
   if (loading) return <div className="center" style={{ padding: 60 }}><div className="logo" style={{ margin: '0 auto' }}>IT</div></div>;
   if (!user) {
     return (
@@ -40,6 +41,23 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Platform />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    );
+  }
+  if (isSupplier) {
+    return (
+      <Routes>
+        <Route element={<Layout />}>
+          <Route index element={<SupplierHome />} />
+          <Route path="rfqs" element={<SupplierRfqs />} />
+          <Route path="rfqs/:id" element={<SupplierRfq />} />
+          <Route path="quotations" element={<SupplierQuotations />} />
+          <Route path="purchase-orders" element={<SupplierOrders />} />
+          <Route path="invoices" element={<SupplierInvoices />} />
+          <Route path="catalog" element={<SupplierCatalog />} />
+          <Route path="profile" element={<SupplierProfile />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

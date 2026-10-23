@@ -14,6 +14,8 @@ const userSchema = new mongoose.Schema(
     title: String,
     phone: String,
     active: { type: Boolean, default: true },
+    // Akun portal penyedia (peran "supplier") terikat ke satu vendor
+    vendor: { type: mongoose.Schema.Types.ObjectId, ref: 'Vendor', default: null },
     lastLoginAt: Date,
     failedLogins: { type: Number, default: 0, select: false },
     lockedUntil: { type: Date, select: false },

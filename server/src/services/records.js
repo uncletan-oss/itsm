@@ -6,7 +6,7 @@
 const mongoose = require('mongoose');
 const { nextNumber } = require('../models/Counter');
 const { audit } = require('./audit');
-const { notify } = require('./notify');
+const { notify, notifyTargets } = require('./notify');
 const { applyTransition } = require('./sla');
 const { HttpError } = require('../middleware/error');
 const { CHECKS, EFFECTS, ON_SAVE, VALIDATE } = require('../../../shared/effects.mjs');
@@ -29,6 +29,7 @@ function makeStore(req, registry) {
       return doc;
     },
     create: async (res, data) => plain(await createDoc(req, registry, res, data, { trusted: true })),
+    notify: (target, n) => notifyTargets(req, target, n),
   };
 }
 

@@ -74,6 +74,26 @@ Aturan lintas-record (`shared/effects.mjs`) dijalankan identik di server & demo.
 | Inisiatif / RPTI | diusulkan → assessment → persetujuan → disetujui → dieksekusi → selesai | Arsitek → Finance (≥ Rp 1 M) → IT Steering Committee; skor prioritas otomatis; *buat proyek* |
 | Arsitektur | draft → review → ARB → disetujui → deprecated | ARB → CIO (target state/investasi) |
 
+## Portal penyedia (vendor self-service)
+
+Akun ber-peran **supplier** terikat ke satu vendor dan hanya dapat memakai portal penyedia (`/api/supplier/*`);
+semua modul internal, pencarian, dashboard, dan daftar pengguna ditolak di server. Respons portal memakai
+*whitelist* field — HPS, penawaran pesaing, skor & catatan evaluasi internal tidak pernah dikirim ke penyedia.
+
+| Fitur | Keterangan |
+|---|---|
+| Registrasi mandiri | `/w/<workspace>/penyedia` (situs publik): data perusahaan, NPWP/NIB, pakta integritas → vendor **prospek** + akun portal; procurement mendapat notifikasi untuk due diligence. Hanya tenant dengan modul e-procurement |
+| Undangan & tender | RFQ yang mengundang vendor (atau tender terbuka); notifikasi saat diumumkan & saat hasil ditetapkan; hitung mundur batas waktu |
+| Penawaran online | Harga per item sesuai lingkup RFQ, waktu kirim, garansi, masa berlaku, tautan dokumen; hanya penyedia aktif & diundang, sebelum batas waktu, satu penawaran aktif per penyedia; dapat ditarik sebelum pembukaan |
+| **Sampul tertutup** | Sebelum pembukaan, harga penawaran disembunyikan dari seluruh pengguna internal (API & UI) dan tidak dapat diubah siapa pun |
+| Purchase order | Konfirmasi PO & janji kirim, catat pengiriman (surat jalan) — terlihat di PO internal & dinotifikasi ke pemohon/procurement |
+| E-invoice | Tagihan atas PO yang sudah dikirim/diterima, ≤ sisa PO, no. invoice unik; masuk ke antrean AP (3-way match) & status pembayaran terpantau |
+| Katalog saya | Usulan item/harga e-katalog berdasarkan kontrak payung aktif (draft → divalidasi procurement, controller & arsitek) |
+| Profil & rekening | Penyedia memperbarui kontak, legalitas & rekening; perubahan rekening memicu notifikasi verifikasi ke procurement & AP (anti-fraud) |
+
+Admin tenant dapat membuat akun penyedia di menu **Pengguna → Akun penyedia** (tidak memakai kuota pengguna paket).
+Demo: masuk cepat sebagai **Penyedia (vendor)** (PT Mitra Perangkat Komputindo) atau **Penyedia baru** (masih prospek).
+
 ## Dashboard KPI
 
 Menu **Dashboard KPI** (eksekutif & manajer) menampilkan tren bulanan (3/6/12 bulan) dengan sparkline & delta:
@@ -256,7 +276,7 @@ findings, bia, continuity, dr-tests, datacenters, racks, dc-access, initiatives,
 - SLA berbasis jam kerja/kalender libur (saat ini kalender 24×7)
 - Notifikasi email/chat dan eskalasi otomatis (notifikasi in-app sudah ada)
 - Penagihan (billing) otomatis & self-service upgrade paket
-- Portal penyedia (vendor self-service) untuk registrasi & unggah penawaran terenkripsi; saat ini penawaran dicatat oleh procurement
+- Unggah lampiran penawaran/faktur terenkripsi di portal penyedia (saat ini berupa tautan dokumen) & e-Faktur/Coretax DJP
 - Integrasi ERP/core accounting & bank (H2H) untuk eksekusi pembayaran; COA & tarif PPN perlu disesuaikan (`shared/finance.mjs`)
 - Integrasi sensor DCIM (daya/suhu real-time); saat ini utilisasi diisi manual per rak
 - SSO (SAML/OIDC) dan MFA

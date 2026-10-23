@@ -10,6 +10,11 @@ const { asyncHandler, HttpError } = require('../middleware/error');
 const { provisionTenant } = require('../services/provision');
 const { signToken } = require('./auth');
 const { audit } = require('../services/audit');
+const User = require('../models/User');
+const { Vendor } = require('../models/assets');
+const { notify } = require('../services/notify');
+const { grantedModules } = require('../../../shared/permissions.mjs');
+const { validateSupplierRegistration, vendorFromRegistration } = require('../../../shared/supplier.mjs');
 const { serviceStatuses, publicMaintenance, publicArticle, publicService } = require('../../../shared/public.mjs');
 
 const router = express.Router();
@@ -91,6 +96,30 @@ t.get(
   asyncHandler(async (req, res) => {
     const items = await Service.find({ tenant: req.tenant._id, status: 'live', requestable: true }).sort('requestCategory name').lean();
     res.json({ items: items.map(publicService) });
+  })
+);
+
+// Registrasi mandiri penyedia: vendor berstatus prospek (due diligence oleh procurement) + akun portal penyedia
+t.post(
+  '/supplier-register',
+  rateLimit({ windowMs: 60 * 60 * 1000, limit: 10 }),
+  asyncHandler(async (req, res) => {
+    if (!grantedModules(req.tenant)?.includes('rfqs')) throw new HttpError(404, 'Portal penyedia tidak tersedia untuk workspace ini');
+    const { data, error } = validateSupplierRegistration(req.body);
+    if (error) throw new HttpError(400, error);
+    if (await User.exists({ tenant: req.tenant._id, email: data.email })) throw new HttpError(409, 'Email sudah terdaftar di workspace ini');
+    if (await Vendor.exists({ tenant: req.tenant._id, npwp: data.npwp })) throw new HttpError(409, 'NPWP sudah terdaftar — hubungi procurement untuk dibuatkan akun tambahan');
+    const vendor = new Vendor({ ...vendorFromRegistration(data), tenant: req.tenant._id });
+    vendor.number = await require('../models/Counter').nextNumber(req.tenant._id, 'VND');
+    vendor.activities.push({ type: 'system', message: 'Registrasi mandiri melalui portal penyedia', byName: data.contactName });
+    await vendor.save();
+    const user = new User({ tenant: req.tenant._id, name: data.contactName, email: data.email, roles: ['supplier'], vendor: vendor._id, title: data.companyName });
+    await user.setPassword(data.password);
+    await user.save();
+    const ctx = { ip: req.ip, user, tenant: req.tenant };
+    await audit(ctx, 'supplier_register', 'vendors', vendor, { email: data.email, npwp: data.npwp }, req.tenant._id);
+    await notify(ctx, { event: 'create', resource: 'vendors', label: 'Vendor', doc: vendor.toObject() });
+    res.status(201).json({ token: signToken(user), workspace: req.tenant.slug, vendor: { number: vendor.number, name: vendor.name, status: vendor.status } });
   })
 );
 

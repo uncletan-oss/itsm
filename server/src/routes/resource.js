@@ -8,7 +8,7 @@ const { checkTransition } = require('../services/workflows');
 const { slaStatus } = require('../services/sla');
 const { createDoc, transitionDoc, runOnSave, runValidate, plain } = require('../services/records');
 const { approvalError, decide } = require('../../../shared/approvals.mjs');
-const { spawnPrefill, spawnRule } = require('../../../shared/effects.mjs');
+const { spawnPrefill, spawnRule, sealQuotation } = require('../../../shared/effects.mjs');
 
 const USER_FIELDS = 'name email department';
 const ALWAYS_PROTECTED = ['_id', 'id', 'tenant', 'number', 'activities', 'approvals', 'approvalRound', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'sla', '__v', 'allowedTransitions', 'slaStatus', '_spawnFrom'];
@@ -51,8 +51,9 @@ function populateQuery(q, def) {
   return q;
 }
 
-function decorate(doc, canSeeWorknotes = true) {
-  const obj = doc.toJSON ? doc.toJSON() : doc;
+function decorate(doc, canSeeWorknotes = true, name) {
+  let obj = doc.toJSON ? doc.toJSON() : doc;
+  if (name === 'quotations') obj = sealQuotation(obj); // sampul tertutup sampai pembukaan penawaran
   if (obj.sla) obj.slaStatus = slaStatus(obj.sla);
   // Work note bersifat internal: tidak dikirim ke pengguna yang tidak berhak mengubah record
   if (obj.activities && !canSeeWorknotes) obj.activities = obj.activities.filter((a) => a.type !== 'worknote');
@@ -90,7 +91,7 @@ module.exports = function buildResourceRouter(name, def, registry) {
   const respond = async (req, res, doc, status = 200) => {
     const full = await populateQuery(Model.findById(doc._id), def);
     res.status(status).json({
-      ...decorate(full, hasRole(req.user, perm(req).write)),
+      ...decorate(full, hasRole(req.user, perm(req).write), name),
       allowedTransitions: def.workflow?.transitions[full.status] || [],
     });
   };
@@ -119,7 +120,7 @@ module.exports = function buildResourceRouter(name, def, registry) {
         populateQuery(Model.find(scoped).sort(sortBy).skip(skip).limit(lim).select('-activities'), def),
         Model.countDocuments(scoped),
       ]);
-      res.json({ items: items.map((d) => decorate(d)), total, page: Number(page) || 1, limit: lim });
+      res.json({ items: items.map((d) => decorate(d, true, name)), total, page: Number(page) || 1, limit: lim });
     })
   );
 

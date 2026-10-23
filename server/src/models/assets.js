@@ -105,6 +105,17 @@ const vendorSchema = new Schema({
   lastAuditDate: Date,
   riskRating: { type: String, enum: ['', 'low', 'medium', 'high', 'critical'] },
   notes: String,
+  // Profil yang dikelola penyedia sendiri melalui portal penyedia
+  npwp: String,
+  nib: String,
+  address: String,
+  phone: String,
+  website: String,
+  bankName: String,
+  bankAccount: String,
+  bankAccountName: String,
+  registeredVia: { type: String, enum: ['internal', 'self_service'], default: 'internal' },
+  profileUpdatedAt: Date,
 });
 vendorSchema.plugin(basePlugin);
 

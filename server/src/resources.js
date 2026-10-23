@@ -137,6 +137,7 @@ const registry = {
     prefix: 'VND',
     label: 'Vendor',
     search: ['number', 'name', 'contractNumber'],
+    protected: ['registeredVia', 'profileUpdatedAt'],
   },
   knowledge: {
     model: KnowledgeArticle,

@@ -104,7 +104,7 @@ export function ToastProvider({ children }) {
 }
 export const useToast = () => useContext(ToastCtx);
 
-export const initials = (name = '') => name.split(/\s+/).filter(Boolean).slice(0, 2).map((s) => s[0]).join('').toUpperCase();
+export const initials = (name = '') => name.split(/\s+/).filter((w) => /^\p{L}/u.test(w)).slice(0, 2).map((s) => s[0]).join('').toUpperCase();
 
 /** Tema terang/gelap, disimpan per browser. */
 export function useTheme() {

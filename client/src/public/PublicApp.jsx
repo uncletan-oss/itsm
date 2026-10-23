@@ -11,6 +11,7 @@ import Status from './Status.jsx';
 import Help from './Help.jsx';
 import Article from './Article.jsx';
 import Governance from './Governance.jsx';
+import SupplierRegister from './SupplierRegister.jsx';
 
 function ScrollTop() {
   const { pathname } = useLocation();
@@ -81,7 +82,7 @@ function TenantLayout() {
     <div className="pub">
       <Header
         brand={<NavLink to={base} className="pub-brand"><span className="logo">{(info?.name || 'IT').slice(0, 2).toUpperCase()}</span><span><b>Layanan TI</b><small>{info?.name || '…'}</small></span></NavLink>}
-        links={[[base, 'Beranda', true], [`${base}/status`, 'Status Layanan'], [`${base}/bantuan`, 'Pusat Bantuan'], [`${base}/tata-kelola`, 'Tata Kelola']]}
+        links={[[base, 'Beranda', true], [`${base}/status`, 'Status Layanan'], [`${base}/bantuan`, 'Pusat Bantuan'], [`${base}/tata-kelola`, 'Tata Kelola'], [`${base}/penyedia`, 'Penyedia']]}
         cta={<a className="btn btn-primary" href={portalHref('/', slug)}>Masuk Portal</a>}
       />
       <DemoNote />
@@ -89,6 +90,7 @@ function TenantLayout() {
       <Footer>
         <div><b style={{ color: '#fff' }}>Layanan TI {info?.name}</b><p className="small" style={{ color: '#8d97b5' }}>{info?.branding?.tagline || 'Dikelola sesuai praktik ITIL 4, ISO/IEC 20000 & 27001, NIST CSF 2.0, serta regulasi yang berlaku di industri kami.'}</p></div>
         <div className="small"><b style={{ color: '#fff' }}>Layanan</b><NavLink to={`${base}/status`}>Status layanan</NavLink><NavLink to={`${base}/bantuan`}>Knowledge base</NavLink><a href={portalHref('/m/incidents/new', slug)}>Laporkan gangguan</a></div>
+        <div className="small"><b style={{ color: '#fff' }}>Penyedia</b><NavLink to={`${base}/penyedia`}>Daftar sebagai penyedia</NavLink><a href={portalHref('/', slug)}>Masuk portal penyedia</a></div>
         <div className="small"><b style={{ color: '#fff' }}>Didukung oleh</b><NavLink to="/">Nusa ITSM</NavLink></div>
       </Footer>
     </div>
@@ -112,6 +114,7 @@ export default function PublicApp() {
           <Route path="bantuan" element={<Help />} />
           <Route path="bantuan/:id" element={<Article />} />
           <Route path="tata-kelola" element={<div className="pub-wrap pub-section"><Governance tenantScoped /></div>} />
+          <Route path="penyedia" element={<SupplierRegister />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

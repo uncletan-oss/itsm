@@ -56,8 +56,21 @@ function useNav() {
   return groups.filter((g) => g.items.length);
 }
 
+// Portal penyedia (vendor self-service): menu terpisah untuk akun peran "supplier"
+const SUPPLIER_NAV = [
+  { title: 'Portal Penyedia', items: [
+    { to: '/', label: 'Beranda', icon: 'dashboard', end: true },
+    { to: '/rfqs', label: 'Undangan & Tender', icon: 'gavel' },
+    { to: '/quotations', label: 'Penawaran Saya', icon: 'inbox' },
+    { to: '/purchase-orders', label: 'Purchase Order', icon: 'cart' },
+    { to: '/invoices', label: 'Tagihan (e-Invoice)', icon: 'receipt' },
+    { to: '/catalog', label: 'Katalog Saya', icon: 'grid' },
+  ] },
+  { title: 'Perusahaan', items: [{ to: '/profile', label: 'Profil & Rekening', icon: 'building' }] },
+];
+
 export default function Layout() {
-  const { user, tenant, logout, isPlatform } = useAuth();
+  const { user, tenant, logout, isPlatform, isSupplier } = useAuth();
   const [open, setOpen] = useState(false);
   const [theme, toggleTheme] = useTheme();
   const [workCount, setWorkCount] = useState(0);
@@ -67,9 +80,9 @@ export default function Layout() {
 
   useEffect(() => setOpen(false), [location.pathname]);
   useEffect(() => {
-    if (isPlatform) return;
+    if (isPlatform || isSupplier) return;
     api('/my-work').then((w) => setWorkCount(w.assigned.length + w.approvals.length)).catch(() => {});
-  }, [location.pathname, isPlatform]);
+  }, [location.pathname, isPlatform, isSupplier]);
 
   const platformNav = [{ title: 'Platform', items: [{ to: '/', label: 'Tenant', icon: 'tenant', end: true }] }];
 
@@ -81,14 +94,14 @@ export default function Layout() {
             <div className="logo">IT</div>
             <div>
               <div className="brand-name">Nusa ITSM</div>
-              <div className="brand-org">{isPlatform ? 'Konsol Platform' : 'Service Management Cloud'}</div>
+              <div className="brand-org">{isPlatform ? 'Konsol Platform' : isSupplier ? 'Portal Penyedia' : 'Service Management Cloud'}</div>
             </div>
           </div>
           {tenant && (
             <div className="workspace-card">
               <div className="ws-name" title={tenant.name}>{tenant.name}</div>
               <div className="ws-meta">
-                <span className="plan-pill">{tenant.planName}</span>
+                <span className="plan-pill">{isSupplier ? 'Penyedia' : tenant.planName}</span>
                 <span>{tenant.slug}</span>
                 {tenant.status === 'trial' && <span>· trial</span>}
               </div>
@@ -96,7 +109,7 @@ export default function Layout() {
           )}
         </div>
         <nav aria-label="Navigasi utama">
-          {(isPlatform ? platformNav : nav).map((g) => (
+          {(isPlatform ? platformNav : isSupplier ? SUPPLIER_NAV : nav).map((g) => (
             <div key={g.title} className="nav-group">
               <div className="nav-title">{g.title}</div>
               {g.items.map((it) => (
@@ -118,10 +131,11 @@ export default function Layout() {
       <div className="main">
         <header className="topbar">
           <button className="icon-btn hamburger" onClick={() => setOpen(!open)} aria-label="Buka menu"><Icon name="menu" /></button>
-          {!isPlatform && <GlobalSearch />}
+          {!isPlatform && !isSupplier && <GlobalSearch />}
+          {isSupplier && <div className="grow" />}
           <div className="topbar-actions">
-            {!isPlatform && <QuickCreate />}
-            {!isPlatform && <a className="icon-btn hide-sm" href={publicHref(tenant ? `/w/${tenant.slug}` : '/')} title="Situs bantuan publik"><Icon name="globe" /></a>}
+            {!isPlatform && !isSupplier && <QuickCreate />}
+            {!isPlatform && !isSupplier && <a className="icon-btn hide-sm" href={publicHref(tenant ? `/w/${tenant.slug}` : '/')} title="Situs bantuan publik"><Icon name="globe" /></a>}
             {!isPlatform && <Notifications />}
             <button className="icon-btn" onClick={toggleTheme} title={theme === 'dark' ? 'Tema terang' : 'Tema gelap'} aria-label="Ganti tema">
               <Icon name={theme === 'dark' ? 'sun' : 'moon'} />
@@ -231,7 +245,8 @@ function Notifications() {
     setOpen(false);
     if (!n.read) await api(`/notifications/${n._id}/read`, { method: 'POST' }).catch(() => {});
     load();
-    if (n.link?.resource) navigate(`/m/${n.link.resource}/${n.link.id}`);
+    if (n.link?.supplier) navigate(n.link.supplier === 'me' ? '/profile' : `/${n.link.supplier}${n.link.supplier === 'rfqs' ? `/${n.link.id}` : ''}`);
+    else if (n.link?.resource) navigate(`/m/${n.link.resource}/${n.link.id}`);
   };
   const readAll = async () => {
     await api('/notifications/read-all', { method: 'POST' });
@@ -275,7 +290,7 @@ function UserMenu({ user, logout }) {
         <span className="avatar">{initials(user.name)}</span>
         <span className="hide-sm" style={{ textAlign: 'left', lineHeight: 1.2 }}>
           <b style={{ fontSize: 13 }}>{user.name}</b>
-          <br /><span className="small muted">{user.roles.join(', ')}</span>
+          <br /><span className="small muted">{user.roles.includes('supplier') ? (user.title || 'Penyedia') : user.roles.join(', ')}</span>
         </span>
         <Icon name="chevronDown" size="sm" />
       </button>

@@ -7,7 +7,7 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const config = require('./config');
 const { authenticate, requireTenant, requirePlatform } = require('./middleware/auth');
-const { errorHandler, notFound } = require('./middleware/error');
+const { errorHandler, notFound, HttpError } = require('./middleware/error');
 const resources = require('./resources');
 const buildResourceRouter = require('./routes/resource');
 const buildInsightsRouter = require('./routes/insights');
@@ -27,11 +27,14 @@ function createApp() {
   app.use('/api', authenticate);
   app.use('/api/platform', requirePlatform, require('./routes/platform'));
   app.use('/api', requireTenant);
+  app.use('/api/notifications', require('./routes/notifications'));
+  app.use('/api/supplier', require('./routes/supplier')(resources));
+  // Akun penyedia (pihak eksternal) hanya boleh memakai portal penyedia & notifikasinya
+  app.use('/api', (req, res, next) => (req.user.roles.includes('supplier') ? next(new HttpError(403, 'Akun penyedia hanya dapat mengakses portal penyedia')) : next()));
   app.use('/api/tenant', require('./routes/tenant'));
   app.use('/api/users', require('./routes/users'));
   app.use('/api/compliance', require('./routes/compliance'));
   app.use('/api/audit-logs', require('./routes/audit'));
-  app.use('/api/notifications', require('./routes/notifications'));
   app.use('/api', buildInsightsRouter(resources));
   for (const [name, def] of Object.entries(resources)) {
     app.use(`/api/${name}`, buildResourceRouter(name, def, resources));

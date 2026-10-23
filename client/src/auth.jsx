@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { api, getToken, setToken } from './api.js';
-import { hasRole, PLATFORM_ROLE } from '../../shared/roles.mjs';
+import { hasRole, isSupplier, PLATFORM_ROLE } from '../../shared/roles.mjs';
 import { canPage as canPageFn } from '../../shared/permissions.mjs';
 
 const AuthCtx = createContext(null);
@@ -56,7 +56,8 @@ export function AuthProvider({ children }) {
     session, user, tenant: session?.tenant || null, permissions: perms, loading, login, loginWithToken, logout, refresh,
     hasRole: (...roles) => !!user && hasRole(user, roles.flat()),
     isPlatform: !!user && !session?.tenant && user.roles.includes(PLATFORM_ROLE),
-    isStaff: !!user && user.roles.some((r) => r !== 'requester'),
+    isStaff: !!user && !isSupplier(user) && user.roles.some((r) => r !== 'requester'),
+    isSupplier: isSupplier(user),
     /** can('incidents', 'write') — mengikuti matriks efektif tenant (termasuk batas paket). */
     can: (resource, action = 'read') => !!user && !!perms[resource]?.enabled && hasRole(user, perms[resource][action]),
     enabled: (resource) => !!perms[resource]?.enabled,

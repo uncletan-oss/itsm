@@ -85,7 +85,7 @@ export const RESOURCES = {
   },
   vendors: {
     prefix: 'VND', label: 'Vendor',
-    search: ['number', 'name', 'contractNumber'], refs: {},
+    search: ['number', 'name', 'contractNumber'], refs: {}, protected: ['registeredVia', 'profileUpdatedAt'],
     workflow: workflows.vendor, initial: 'prospect',
     defaults: { category: 'other', criticality: 'medium', dataLocation: 'Indonesia', rightToAudit: false },
   },

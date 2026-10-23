@@ -26,6 +26,7 @@ const transitionLabel = (from, to, resource) => {
   if (ACTION_LABELS[resource]?.[to]) return ACTION_LABELS[resource][to];
   if (to === 'in_progress' && ['resolved', 'pending'].includes(from)) return from === 'resolved' ? 'Buka kembali' : 'Lanjutkan';
   if (to === 'draft' && from !== 'draft') return 'Kembalikan ke draft';
+  if (to === 'cancelled') return 'Batalkan';
   return STATUS_LABELS[to] || to;
 };
 
@@ -153,6 +154,7 @@ export default function ResourceDetail() {
         <div>
           {policy && <ApprovalPanel resource={resource} policy={policy} doc={doc} user={user} act={act} />}
           {resource === 'rfqs' && <QuotationCompare rfq={doc} version={doc.updatedAt} />}
+          {doc.sealed && <div className="alert warn"><Icon name="lock" size="sm" />Penawaran tersegel — harga baru dapat dilihat setelah pembukaan penawaran pada {doc.rfq?.number || 'RFQ'}.</div>}
           <Tabs value={tab} onChange={setTab} tabs={[['detail', 'Detail'], !mod.noActivity && ['activity', 'Aktivitas', activities.length], ['related', 'Terkait', relatedCount]].filter(Boolean)} />
           {tab === 'detail' && (editing ? (
             <ResourceForm existing={doc} onSaved={() => { setEditing(false); load(); }} onCancel={() => setEditing(false)} />

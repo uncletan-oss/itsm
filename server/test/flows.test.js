@@ -298,6 +298,89 @@ test('Alur end-to-end: procure-to-pay, GRC assurance, BCM, DCIM, persetujuan & g
     assert.ok(k.procurement.totals.catalogShare > 0);
   });
 
+  await t.test('portal penyedia: registrasi, isolasi data, penawaran tersegel, konfirmasi PO, e-invoice', async () => {
+    const day = (n) => new Date(Date.now() + n * 864e5).toISOString();
+    // Registrasi mandiri → vendor prospek; belum boleh ikut RFQ
+    const reg = (await request(app).post('/api/public/t/bank-x/supplier-register').send({ companyName: 'PT Baru', npwp: '01.111.222.3-444.000', contactName: 'Ani', email: 'ani@baru.io', password: PW, agree: true }).expect(201)).body;
+    await request(app).post('/api/public/t/small-x/supplier-register').send({ companyName: 'X', npwp: '01.111.222.3-444.001', contactName: 'A', email: 'a@x.io', password: PW, agree: true }).expect(404);
+    const me0 = (await request(app).get('/api/supplier/me').set(A(reg.token)).expect(200)).body;
+    assert.deepStrictEqual([me0.vendor.status, me0.vendor.registeredVia], ['prospect', 'self_service']);
+    await request(app).get('/api/incidents').set(A(reg.token)).expect(403);
+    await request(app).get('/api/users').set(A(reg.token)).expect(403);
+    await request(app).get('/api/dashboard').set(A(reg.token)).expect(403);
+    await request(app).get('/api/supplier/me').set(A(proc)).expect(403);
+
+    // Akun penyedia untuk vendor aktif, dibuat admin (tidak memakai kuota pengguna)
+    const Vendor = mongoose.model('Vendor');
+    const [va, vb, vc] = await Promise.all(['Satu', 'Dua', 'Tiga'].map((n, i) => Vendor.create({ tenant: T._id, number: `VND-S${i}`, name: `PT ${n}`, status: 'active' })));
+    const adminT = await login('bank-x', 'admin@x.io');
+    await request(app).post('/api/users').set(A(adminT)).send({ name: 'Sup A', email: 'supa@x.io', password: PW, roles: ['supplier', 'admin'] }).expect(400); // wajib vendor
+    const ua = (await request(app).post('/api/users').set(A(adminT)).send({ name: 'Sup A', email: 'supa@x.io', password: PW, roles: ['supplier', 'admin'], vendor: String(va._id) }).expect(201)).body;
+    assert.deepStrictEqual(ua.roles, ['supplier']); // tidak dapat digabung peran internal
+    await request(app).post('/api/users').set(A(adminT)).send({ name: 'Sup B', email: 'supb@x.io', password: PW, roles: ['supplier'], vendor: String(vb._id) }).expect(201);
+    const sa = await login('bank-x', 'supa@x.io');
+    const sb = await login('bank-x', 'supb@x.io');
+    assert.ok(!(await request(app).get('/api/users').set(A(adminT))).body.items.some((u) => u.roles.includes('supplier')));
+
+    const bgt = await mongoose.model('Budget').create({ tenant: T._id, number: 'BGT-S1', name: 'Wifi', fiscalYear: 2026, amount: 1000000000, status: 'active' });
+    const rfq = (await request(app).post('/api/rfqs').set(A(proc)).send({ title: 'Wi-Fi', method: 'rfq', budget: String(bgt._id), hpsAmount: 300000000, closingDate: day(3), evaluationCriteria: 'x', invitedVendors: [String(va._id), String(vb._id), String(vc._id)], items: [{ description: 'AP', qty: 10, unit: 'unit' }] }).expect(201)).body;
+    await go(proc, ['rfqs', rfq._id], 'published').expect(200);
+    const notif = (await request(app).get('/api/notifications').set(A(sa)).expect(200)).body.items;
+    assert.ok(notif.some((n) => /Undangan RFQ/.test(n.title)));
+    const list = (await request(app).get('/api/supplier/rfqs').set(A(sa)).expect(200)).body.items;
+    assert.strictEqual(list.length, 1);
+    assert.strictEqual(list[0].hpsAmount, undefined);
+    assert.strictEqual(list[0].invitedVendors, undefined);
+    assert.strictEqual((await request(app).get('/api/supplier/rfqs').set(A(reg.token))).body.items.length, 0);
+
+    const qa = (await request(app).post(`/api/supplier/rfqs/${rfq._id}/quotations`).set(A(sa)).send({ items: [{ unitPrice: 25000000 }], deliveryDays: 20 }).expect(201)).body;
+    assert.strictEqual(qa.subtotal, 250000000);
+    await request(app).post(`/api/supplier/rfqs/${rfq._id}/quotations`).set(A(sa)).send({ items: [{ unitPrice: 1 }] }).expect(422);
+    await request(app).post(`/api/supplier/rfqs/${rfq._id}/quotations`).set(A(sb)).send({ items: [{ unitPrice: 26000000 }] }).expect(201);
+    // Sampul tertutup: staf tidak melihat harga sebelum pembukaan & tidak dapat mengubahnya
+    const sealed = (await request(app).get(`/api/quotations/${qa._id}`).set(A(proc)).expect(200)).body;
+    assert.ok(sealed.sealed && sealed.subtotal === undefined && sealed.items[0].unitPrice === undefined);
+    assert.ok((await request(app).get('/api/quotations').set(A(proc))).body.items.filter((q) => q.rfq?._id === rfq._id).every((q) => q.subtotal === undefined));
+    await request(app).put(`/api/quotations/${qa._id}`).set(A(proc)).send({ items: [{ description: 'AP', qty: 10, unitPrice: 1 }] }).expect(422);
+    // Penyedia lain tidak dapat menarik penawaran milik orang lain
+    await request(app).post(`/api/supplier/quotations/${qa._id}/withdraw`).set(A(sb)).expect(404);
+
+    const q3 = (await request(app).post('/api/quotations').set(A(proc)).send({ rfq: rfq._id, vendor: String(vc._id), items: [{ description: 'AP', qty: 10, unitPrice: 29000000 }] }).expect(201)).body;
+    assert.ok(q3.sealed);
+    await go(proc, ['rfqs', rfq._id], 'evaluation').expect(200);
+    const opened = (await request(app).get(`/api/quotations/${qa._id}`).set(A(proc)).expect(200)).body;
+    assert.strictEqual(opened.subtotal, 250000000);
+    await request(app).put(`/api/rfqs/${rfq._id}`).set(A(proc)).send({ priceWeight: 100 }).expect(200);
+    await go(proc, ['rfqs', rfq._id], 'pending_approval', { evaluationNotes: 'BA' }).expect(200);
+    const r = (await approve(fin, 'rfqs', rfq._id).expect(200)).body;
+    assert.strictEqual(r.status, 'awarded');
+    const mine = (await request(app).get('/api/supplier/rfqs').set(A(sa))).body.items[0];
+    assert.strictEqual(mine.result, 'Ditetapkan sebagai pemenang');
+    assert.strictEqual((await request(app).get('/api/supplier/rfqs').set(A(sb))).body.items[0].result, 'Tidak terpilih');
+
+    // PO pemenang: konfirmasi → kirim → e-invoice (≤ sisa PO, tanpa duplikat)
+    const pos = (await request(app).get('/api/supplier/purchase-orders').set(A(sa)).expect(200)).body.items;
+    assert.strictEqual(pos.length, 1);
+    assert.strictEqual(pos[0].justification, undefined);
+    assert.strictEqual((await request(app).get('/api/supplier/purchase-orders').set(A(sb))).body.items.length, 0);
+    const po = pos[0];
+    await request(app).post(`/api/supplier/purchase-orders/${po._id}/acknowledge`).set(A(sa)).send({ promisedDate: day(5).slice(0, 10) }).expect(200);
+    await request(app).post('/api/supplier/invoices').set(A(sa)).send({ purchaseOrder: po._id, vendorInvoiceNo: 'A-1', amount: 1000 }).expect(422);
+    await request(app).post(`/api/supplier/purchase-orders/${po._id}/ship`).set(A(sa)).send({ deliveryNote: 'SJ-1' }).expect(200);
+    await request(app).post('/api/supplier/invoices').set(A(sa)).send({ purchaseOrder: po._id, vendorInvoiceNo: 'A-1', amount: po.subtotal + 1 }).expect(422);
+    const inv = (await request(app).post('/api/supplier/invoices').set(A(sa)).send({ purchaseOrder: po._id, vendorInvoiceNo: 'A-1', amount: po.subtotal }).expect(201)).body;
+    assert.strictEqual(inv.total, 277500000);
+    await request(app).post('/api/supplier/invoices').set(A(sb)).send({ purchaseOrder: po._id, vendorInvoiceNo: 'B-1', amount: 1 }).expect(404);
+    const staffPo = (await request(app).get(`/api/purchase-orders/${po._id}`).set(A(proc)).expect(200)).body;
+    assert.ok(staffPo.supplierAckAt && staffPo.shippedAt && staffPo.deliveryNote === 'SJ-1');
+    assert.ok((await request(app).get('/api/notifications').set(A(acct))).body.items.some((n) => /E-invoice/.test(n.title)));
+
+    // Profil: hanya field yang diizinkan; perubahan rekening memicu notifikasi verifikasi
+    await request(app).put('/api/supplier/me').set(A(sa)).send({ status: 'active' }).expect(400);
+    await request(app).put('/api/supplier/me').set(A(sa)).send({ bankAccount: '123', phone: '0812' }).expect(200);
+    assert.strictEqual((await Vendor.findById(va._id)).bankAccount, '123');
+  });
+
   await t.test('operator platform memberi/mencabut modul per tenant', async () => {
     const adminS = await login('small-x', 'admin@s.io');
     await request(app).get('/api/budgets').set(A(adminS)).expect(403); // starter: tidak termasuk

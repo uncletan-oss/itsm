@@ -3,7 +3,7 @@
  * Admin tenant dapat menimpa read/write per resource melalui menu "Peran & Akses".
  * Menu portal dibangun dari matriks efektif ini, sehingga tiap peran hanya melihat modul yang relevan.
  */
-import { ROLE_KEYS, hasRole } from './roles.mjs';
+import { INTERNAL_ROLE_KEYS, hasRole } from './roles.mjs';
 import { PLANS } from './plans.mjs';
 import { MODULE_DEFS } from './modules.mjs';
 
@@ -58,7 +58,8 @@ export const PAGES = {
 };
 
 const uniq = (a) => [...new Set(a)];
-const clean = (roles) => (Array.isArray(roles) ? uniq(roles.filter((r) => r === '*' || ROLE_KEYS.includes(r))) : null);
+// Peran eksternal (penyedia) tidak pernah dapat diberi akses modul internal melalui override tenant
+const clean = (roles) => (Array.isArray(roles) ? uniq(roles.filter((r) => r === '*' || INTERNAL_ROLE_KEYS.includes(r))) : null);
 
 /** Modul yang di-grant ke tenant: daftar eksplisit dari operator platform, atau default paket. */
 export const grantedModules = (tenant = {}) => (tenant.modules?.length ? tenant.modules : PLANS[tenant.plan]?.modules);

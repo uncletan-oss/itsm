@@ -9,6 +9,7 @@ const DEMO_ACCOUNTS = [
   ['risk', 'Risk Officer'], ['pm', 'Project Mgr'], ['auditor', 'Auditor'], ['user', 'End User'],
   ['executive', 'CIO / Direksi'], ['finance', 'IT Controller'], ['vendor', 'Procurement'], ['accountant', 'Akuntan'],
   ['treasurer', 'Treasury'], ['dc', 'DC Manager'], ['bcm', 'BCM'], ['ciso', 'CISO'], ['architect', 'Arsitek'],
+  ['supplier', 'Penyedia (vendor)'], ['supplier3', 'Penyedia baru'],
 ];
 const wsFromUrl = () => new URLSearchParams(window.location.search).get('ws') || new URLSearchParams(window.location.hash.split('?')[1] || '').get('ws');
 
@@ -87,6 +88,7 @@ export default function Login() {
             <a href={publicHref('/daftar')}>Belum punya workspace? Daftar gratis</a>
             <a href={publicHref('/')}>Situs publik</a>
           </div>
+          {workspace && <a className="small center" href={publicHref(`/w/${workspace}/penyedia`)}><Icon name="briefcase" size="sm" /> Penyedia barang/jasa? Daftar di portal penyedia</a>}
         </form>
       </section>
     </div>

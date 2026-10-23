@@ -4,7 +4,8 @@
  * (workflow, SLA, prioritas, matriks hak akses, paket, notifikasi, dashboard & laporan).
  * Data disimpan di localStorage browser masing-masing pengunjung.
  */
-import { ROLES, PLATFORM_ROLE } from '../../../shared/roles.mjs';
+import { ROLES, PLATFORM_ROLE, normalizeRoles, isSupplier } from '../../../shared/roles.mjs';
+import { supplierRoute, validateSupplierRegistration, vendorFromRegistration } from '../../../shared/supplier.mjs';
 import { checkTransition } from '../../../shared/workflows.mjs';
 import { computeDueDates, applyTransition, slaStatus } from '../../../shared/sla.mjs';
 import { frameworks, industries } from '../../../shared/frameworks.mjs';
@@ -15,7 +16,7 @@ import { notificationsFor } from '../../../shared/notify.mjs';
 import { computeDashboard, computeReports, computeMyWork } from '../../../shared/insights.mjs';
 import { computeKpi } from '../../../shared/kpi.mjs';
 import { APPROVALS, approvalError, decide, startRound } from '../../../shared/approvals.mjs';
-import { CHECKS, EFFECTS, ON_SAVE, VALIDATE, spawnPrefill, spawnRule } from '../../../shared/effects.mjs';
+import { CHECKS, EFFECTS, ON_SAVE, VALIDATE, sealQuotation, spawnPrefill, spawnRule } from '../../../shared/effects.mjs';
 import { ALL_MODULES } from '../../../shared/plans.mjs';
 import { grantedModules, userLimit } from '../../../shared/permissions.mjs';
 import { RESOURCES, hasRole, isRequesterOnly, same } from './registry.js';
@@ -113,9 +114,23 @@ function notify(ctx, event) {
     if (n.roles?.length) {
       ids = [...ids, ...db.users.filter((u) => u.tenant === ctx.tenant._id && u.active && u.roles.some((r) => n.roles.includes(r)) && u._id !== ctx.user._id).map((u) => u._id)];
     }
+    if (n.vendors?.length) ids = [...ids, ...supplierUsers(ctx, n.vendors)];
     for (const user of new Set(ids)) {
       db.notifications.push({ _id: newId(), tenant: ctx.tenant._id, user, title: n.title, body: n.body, kind: n.kind || 'info', link: n.link, read: false, createdAt: nowIso() });
     }
+  }
+}
+
+const supplierUsers = (ctx, vendors) => db.users.filter((u) => u.tenant === ctx.tenant._id && u.active && u.roles.includes('supplier') && vendors.includes(u.vendor)).map((u) => u._id);
+/** Notifikasi langsung (portal penyedia): target { userIds, roles, vendors }. */
+function notifyTargets(ctx, target, n) {
+  const ids = [
+    ...(target.userIds || []),
+    ...(target.roles?.length ? db.users.filter((u) => u.tenant === ctx.tenant._id && u.active && u.roles.some((r) => target.roles.includes(r))).map((u) => u._id) : []),
+    ...(target.vendors?.length ? supplierUsers(ctx, target.vendors) : []),
+  ];
+  for (const user of new Set(ids)) {
+    if (user && user !== ctx.user._id) db.notifications.push({ _id: newId(), tenant: ctx.tenant._id, user, title: n.title, body: n.body, kind: n.kind || 'info', link: n.link, read: false, createdAt: nowIso() });
   }
 }
 
@@ -155,6 +170,7 @@ function makeStore(ctx) {
       return clone(d);
     },
     create: async (res, data) => clone(await createRecord(ctx, res, data, { trusted: true })),
+    notify: async (target, n) => notifyTargets(ctx, target, n),
   };
 }
 
@@ -202,6 +218,7 @@ function populate(name, doc, canSeeWorknotes = true) {
     else if (out[field]) out[field] = resolve(out[field]);
   }
   if (out.sla) out.slaStatus = slaStatus(reviveSla(out.sla));
+  if (name === 'quotations') return { ...sealQuotation(out), ...(def.workflow ? { allowedTransitions: def.workflow.transitions[out.status] || [] } : {}), id: out._id };
   if (out.activities && !canSeeWorknotes) out.activities = out.activities.filter((a) => a.type !== 'worknote');
   if (def.workflow) out.allowedTransitions = def.workflow.transitions[out.status] || [];
   out.id = out._id;
@@ -305,10 +322,9 @@ async function createRecord(ctx, name, body, { trusted = false } = {}) {
   if (!def.noActivity) doc.activities.push({ _id: newId(), type: 'system', message: `${def.label} dibuat`, by: user._id, byName: user.name, at: now });
   const stored = clone(doc);
   db[name].push(stored);
-  if (!trusted) {
-    audit(ctx, 'create', name, stored);
-    notify(ctx, { event: 'create', resource: name, label: def.label, doc: stored });
-  }
+  if (!trusted) audit(ctx, 'create', name, stored);
+  // Record buatan sistem saat pengguna bekerja (bukan seed) juga memicu notifikasi, sama seperti server
+  if (!trusted || ctx.perms) notify(ctx, { event: 'create', resource: name, label: def.label, doc: stored });
   if (ON_SAVE[name] && ctx.tenant) await ON_SAVE[name](clone(stored), makeStore(ctx));
   return stored;
 }
@@ -593,6 +609,20 @@ async function publicRoute([what, slug, sub, id], method, body, query) {
     const hit = (a) => !q || [a.title, a.content, a.category, ...(a.tags || [])].some((v) => String(v || '').toLowerCase().includes(q));
     return { items: sortBy(kb.filter(hit), '-publishedAt').map((a) => publicArticle(a)) };
   }
+  if (sub === 'supplier-register' && method === 'POST') {
+    if (!grantedModules(tenant)?.includes('rfqs')) throw new DemoError(404, 'Portal penyedia tidak tersedia untuk workspace ini');
+    const { data, error } = validateSupplierRegistration(body);
+    if (error) throw new DemoError(400, error);
+    if (db.users.some((u) => u.tenant === tenant._id && u.email === data.email)) throw new DemoError(409, 'Email sudah terdaftar di workspace ini');
+    if (mine('vendors').some((v) => v.npwp === data.npwp)) throw new DemoError(409, 'NPWP sudah terdaftar — hubungi procurement untuk dibuatkan akun tambahan');
+    const user = { _id: newId(), tenant: tenant._id, name: data.contactName, email: data.email, password: data.password, roles: ['supplier'], title: data.companyName, active: true, createdAt: nowIso() };
+    db.users.push(user);
+    const ctx = { tenant, user, perms: effectivePermissions(tenant) };
+    const vendor = await createRecord(ctx, 'vendors', vendorFromRegistration(data), { trusted: true });
+    user.vendor = vendor._id;
+    audit(ctx, 'supplier_register', 'vendors', vendor, { email: data.email, npwp: data.npwp });
+    return { token: user._id, workspace: tenant.slug, vendor: { number: vendor.number, name: vendor.name, status: vendor.status } };
+  }
   if (sub === 'catalog') return { items: sortBy(mine('services').filter((s) => s.status === 'live' && s.requestable), 'requestCategory name').map(publicService) };
   throw new DemoError(404, 'Endpoint publik tidak ditemukan');
 }
@@ -678,6 +708,19 @@ async function route(method, path, body, query, token) {
   }
   if (!tenant) throw new DemoError(403, 'Rute ini hanya untuk pengguna workspace');
 
+  // ---- Portal penyedia (vendor self-service) ----
+  if (parts[0] === 'supplier') {
+    if (!isSupplier(user)) throw new DemoError(403, 'Hanya untuk akun penyedia');
+    try {
+      const out = await supplierRoute(makeStore(ctx), user, method, parts.slice(1), body || {}, query);
+      if (method !== 'GET') audit(ctx, 'supplier_portal', parts[1], out?._id ? out : null, { action: parts.slice(2).join('/') || method });
+      return out;
+    } catch (e) {
+      throw e.status ? new DemoError(e.status, e.message) : e;
+    }
+  }
+  if (isSupplier(user) && parts[0] !== 'notifications') throw new DemoError(403, 'Akun penyedia hanya dapat mengakses portal penyedia');
+
   if (path === '/users/roles') return ROLES;
   if (parts[0] === 'users') {
     const mine = db.users.filter((u) => u.tenant === tenant._id);
@@ -685,18 +728,24 @@ async function route(method, path, body, query, token) {
       let items = mine;
       if (query.active !== 'all') items = items.filter((u) => u.active);
       if (query.role) items = items.filter((u) => u.roles.includes(query.role));
+      else if (query.kind !== 'all') items = items.filter((u) => !u.roles.includes('supplier'));
       if (query.q) items = items.filter((u) => `${u.name} ${u.email}`.toLowerCase().includes(query.q.toLowerCase()));
-      return { items: sortBy(items, 'name').map(fullUser), total: items.length, limit: userLimit(tenant), used: mine.filter((u) => u.active).length };
+      return { items: sortBy(items, 'name').map(fullUser), total: items.length, limit: userLimit(tenant), used: mine.filter((u) => u.active && !u.roles.includes('supplier')).length };
     }
     requireRole('admin');
     const { name, email, password, roles, department, title, phone, active } = body;
-    const validRoles = Array.isArray(roles) ? roles.filter((r) => ROLES[r]) : undefined;
+    const validRoles = normalizeRoles(roles);
+    const vendorFor = (rs, v) => {
+      if (!rs?.includes('supplier')) return null;
+      if (!v || !db.vendors.some((x) => x._id === v && x.tenant === tenant._id)) throw new DemoError(400, 'Akun penyedia wajib ditautkan ke vendor');
+      return v;
+    };
     if (method === 'POST') {
       const max = userLimit(tenant);
-      if (max && mine.filter((u) => u.active).length >= max) throw new DemoError(402, `Batas ${max} pengguna aktif untuk workspace ini tercapai. Hubungi operator platform untuk menambah kuota.`);
+      if (max && !validRoles?.includes('supplier') && mine.filter((u) => u.active && !u.roles.includes('supplier')).length >= max) throw new DemoError(402, `Batas ${max} pengguna aktif untuk workspace ini tercapai. Hubungi operator platform untuk menambah kuota.`);
       if (!password || password.length < 8) throw new DemoError(400, 'Password minimal 8 karakter');
       if (mine.some((u) => u.email === String(email).toLowerCase())) throw new DemoError(409, 'Data duplikat');
-      const u = { _id: newId(), tenant: tenant._id, name, email: String(email).toLowerCase(), password, roles: validRoles?.length ? validRoles : ['requester'], department, title, phone, active: true, createdAt: nowIso() };
+      const u = { _id: newId(), tenant: tenant._id, name, email: String(email).toLowerCase(), password, roles: validRoles?.length ? validRoles : ['requester'], vendor: vendorFor(validRoles, body.vendor), department, title, phone, active: true, createdAt: nowIso() };
       db.users.push(u);
       audit(ctx, 'create', 'users', u, { email, roles: u.roles });
       return fullUser(u);
@@ -709,8 +758,16 @@ async function route(method, path, body, query, token) {
       Object.assign(target, before);
       throw new DemoError(422, 'Tidak dapat menonaktifkan / mencabut peran admin dari akun sendiri');
     }
+    if (roles !== undefined || body.vendor !== undefined) {
+      try {
+        target.vendor = vendorFor(target.roles, body.vendor ?? target.vendor);
+      } catch (e) {
+        Object.assign(target, before);
+        throw e;
+      }
+    }
     if (password) target.password = password;
-    audit(ctx, 'update', 'users', target, diff(before, target, ['name', 'email', 'roles', 'department', 'active']));
+    audit(ctx, 'update', 'users', target, diff(before, target, ['name', 'email', 'roles', 'department', 'active', 'vendor']));
     return fullUser(target);
   }
 

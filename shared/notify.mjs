@@ -36,11 +36,30 @@ export function notificationsFor({ event, resource, label, doc, before, actor, t
     const aud = policy && next && stepAudience(policy, doc, next.name);
     if (aud) push({ ...aud, title: `${policy.label}: ${ref} menunggu persetujuan Anda`, body: `${next.name} · ${doc.title || doc.name || ''}`, kind: 'approval' });
   }
+  // Portal penyedia: notifikasi ke akun penyedia (target "vendors" diterjemahkan ke user ber-peran supplier milik vendor tsb.)
+  const sup = (vendors, n) => out.push({ ...n, vendors: vendors.filter(Boolean), userIds: [], link: { supplier: n.supplier, id: n.id } });
+  if (event === 'transition' && resource === 'rfqs' && to === 'published') {
+    sup((doc.invitedVendors || []).map(id), { supplier: 'rfqs', id: id(doc._id), title: `Undangan ${doc.method === 'rfq' ? 'RFQ' : 'tender'}: ${ref}`, body: `${doc.title} · batas penawaran ${doc.closingDate ? new Date(doc.closingDate).toLocaleString('id-ID') : '-'}`, kind: 'approval' });
+  }
+  if (event === 'transition' && resource === 'rfqs' && ['awarded', 'failed', 'cancelled'].includes(to)) {
+    sup((doc.invitedVendors || []).map(id), { supplier: 'rfqs', id: id(doc._id), title: `Hasil ${ref} telah ditetapkan`, body: doc.title });
+  }
+  const poIssued = resource === 'purchase-orders' && ((event === 'create' && doc.status === 'approved') || (event === 'transition' && to === 'approved'));
+  if (poIssued) sup([id(doc.vendor)], { supplier: 'purchase-orders', id: id(doc._id), title: `Purchase order baru: ${ref}`, body: `${doc.title} — mohon konfirmasi`, kind: 'approval' });
+  if (event === 'transition' && resource === 'invoices' && ['approved', 'disputed', 'rejected'].includes(to)) {
+    sup([id(doc.vendor)], { supplier: 'invoices', id: id(doc._id), title: `Tagihan ${doc.vendorInvoiceNo || ref}: ${STATUS_TEXT[to] || to}`, body: to === 'disputed' ? doc.disputeReason : doc.description });
+  }
+  if (event === 'transition' && resource === 'vendors' && ['active', 'rejected', 'terminated'].includes(to)) {
+    sup([id(doc._id)], { supplier: 'me', id: id(doc._id), title: to === 'active' ? 'Registrasi penyedia Anda telah disetujui' : `Status penyedia: ${STATUS_TEXT[to] || to}`, body: doc.name });
+  }
+  if (event === 'create' && resource === 'vendors' && doc.registeredVia === 'self_service') {
+    push({ roles: ['vendor_manager'], title: `Registrasi penyedia baru: ${doc.name}`, body: 'Lakukan due diligence melalui modul Vendor', kind: 'approval' });
+  }
   if (event === 'create' && resource === 'incidents' && (doc.majorIncident || doc.priority === 1)) {
     push({ roles: ['incident_manager'], title: `Incident P1 / major baru: ${ref}`, body: doc.title });
   }
   if (event === 'create' && resource === 'incidents' && doc.securityIncident) {
     push({ roles: ['security_officer'], title: `Insiden keamanan baru: ${ref}`, body: doc.title });
   }
-  return out.filter((n) => n.userIds.length || n.roles?.length);
+  return out.filter((n) => n.userIds.length || n.roles?.length || n.vendors?.length);
 }

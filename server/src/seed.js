@@ -169,7 +169,13 @@ async function seedBank() {
   await assess(tenant, u.risk, ['SM-INC', 'SM-CHG', 'SM-REQ', 'SM-ITAM', 'GV.RR', 'ID.AM', 'RS.MA', 'A.8.15', 'A.8.32', 'PADK-OPS', 'PADK-3P', 'TI-3P', 'TI-AUD'], ['SM-PRB', 'SM-SCON', 'ID.RA', 'PADK-RSK', 'PADK-BCP', 'TI-DRP', 'PDP-05', 'A.5.19']);
   // Modul lanjutan (keuangan, GRC & assurance, DCIM, BCM/DR, perencanaan) — data bersama dengan demo
   const store = makeStore({ tenant, user: u.admin, ip: 'seed' }, resources);
-  await seedExtended(store, { u, refs: { vCloud, vSoft, svcCore, svcMobile, svcEmail, ciDb, ciApp, plan, project: prj, riskCloud, riskRansom, riskData } });
+  const ext = await seedExtended(store, { u, refs: { vCloud, vSoft, svcCore, svcMobile, svcEmail, ciDb, ciApp, plan, project: prj, riskCloud, riskRansom, riskData } });
+  // Akun portal penyedia (vendor self-service)
+  for (const [key, name, vendor] of [['supplier', 'Hendra (PT Mitra Perangkat Komputindo)', ext.vHw], ['supplier2', 'Yuni (PT Solusi Jaringan Prima)', ext.vNet], ['supplier3', 'Rahmat (PT Digital Solusi Mandiri)', ext.vNew]]) {
+    const sup = new User({ tenant: tenant._id, name, email: `${key}@itsm.local`, roles: ['supplier'], vendor: vendor._id, title: 'Akun portal penyedia' });
+    await sup.setPassword(PW);
+    await sup.save();
+  }
   return tenant;
 }
 

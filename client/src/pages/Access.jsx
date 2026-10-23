@@ -28,7 +28,7 @@ export default function Access() {
     });
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const roles = useMemo(() => (data ? Object.keys(data.roles).filter((r) => r !== 'admin') : []), [data]);
+  const roles = useMemo(() => (data ? Object.keys(data.roles).filter((r) => r !== 'admin' && r !== 'supplier') : []), [data]);
   if (!data || !matrix) return <div className="card"><div className="skeleton" style={{ height: 240 }} /></div>;
 
   const level = (res, role) => (matrix[res].write.includes(role) ? 'W' : matrix[res].read.includes('*') || matrix[res].read.includes(role) ? 'R' : '');
