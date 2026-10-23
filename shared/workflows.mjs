@@ -216,7 +216,7 @@ export function fromSpec(spec) {
       onEnter[to] = (d, u, now) => { d[f] = f.endsWith('By') ? u._id : now; };
     }
   }
-  return { transitions: spec.transitions, guards, onEnter, canOwner: spec.canOwner };
+  return { transitions: spec.transitions, guards, onEnter, canOwner: spec.canOwner, spec };
 }
 
 // ---- Workflow end-to-end untuk modul yang sebelumnya hanya berupa status bebas ----

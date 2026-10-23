@@ -3,12 +3,14 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { MODULES, STATUS_FLOW } from '../config/modules.js';
-import { STATUS_LABELS } from '../config/labels.js';
+import { STATUS_LABELS, STATUS_TONE } from '../config/labels.js';
 import { Badge, FormatValue, fmtDateTime } from './format.jsx';
 import ResourceForm, { FormFields, sectionsFor, toPayload } from './ResourceForm.jsx';
 import Icon from './Icon.jsx';
 import { Empty, Modal, Tabs, initials, usePopover, useToast } from './ui.jsx';
 import { AddToCart, QuotationCompare } from './ProcurementPanels.jsx';
+import { WorkflowPanel } from './Workflow.jsx';
+import { transitionInfo } from '../../../shared/workflow-guide.mjs';
 import { APPROVALS, approvalError, approvalProgress } from '../../../shared/approvals.mjs';
 import { SPAWN } from '../../../shared/effects.mjs';
 import { MODULE_DEFS } from '../../../shared/modules.mjs';
@@ -22,33 +24,26 @@ const ACTION_LABELS = {
   requisitions: { pending_approval: 'Ajukan PR', completed: 'Tandai selesai' },
   quotations: { withdrawn: 'Tarik penawaran', disqualified: 'Diskualifikasi' },
 };
+// Kata kerja aksi default (tombol menyatakan tindakan, bukan nama status)
+const ACTION_VERBS = {
+  submitted: 'Ajukan', assigned: 'Tugaskan', in_progress: 'Mulai kerjakan', pending: 'Tunda (pending)', resolved: 'Tandai selesai', closed: 'Tutup',
+  cancelled: 'Batalkan', approved: 'Setujui', rejected: 'Tolak', pending_approval: 'Ajukan persetujuan', fulfilling: 'Mulai penuhi', fulfilled: 'Tandai terpenuhi',
+  investigating: 'Mulai investigasi', known_error: 'Tetapkan known error', assessment: 'Mulai assessment', cab_review: 'Ajukan ke CAB', scheduled: 'Jadwalkan',
+  implementing: 'Mulai implementasi', review: 'Ajukan review', published: 'Terbitkan', retired: 'Pensiunkan', identified: 'Buka kembali', assessed: 'Tandai sudah dinilai',
+  treating: 'Mulai penanganan', monitoring: 'Pindah ke monitoring', planning: 'Mulai perencanaan', executing: 'Mulai eksekusi', closing: 'Mulai penutupan', on_hold: 'Tunda',
+  active: 'Aktifkan', completed: 'Tandai selesai', ordered: 'Pesan ke penyedia', received: 'Catat penerimaan', in_stock: 'Masukkan ke stok', deployed: 'Serahkan ke pengguna',
+  in_repair: 'Kirim perbaikan', due_diligence: 'Mulai due diligence', legal_review: 'Ajukan review legal', renewal_review: 'Review perpanjangan', expired: 'Tandai berakhir',
+  terminated: 'Akhiri', verified: 'Verifikasi', disputed: 'Ajukan sengketa', executed: 'Eksekusi', reconciled: 'Rekonsiliasi', posted: 'Posting', reversed: 'Buat jurnal balik',
+  action_plan: 'Isi rencana tindak lanjut', in_remediation: 'Mulai remediasi', concluded: 'Simpulkan', commissioning: 'Mulai commissioning', operational: 'Operasikan',
+  maintenance: 'Masuk maintenance', decommissioned: 'Nonaktifkan', checked_in: 'Check-in', checked_out: 'Check-out', in_execution: 'Mulai eksekusi', delivered: 'Tandai selesai',
+  needs_update: 'Tandai perlu update', tested: 'Tandai teruji', in_build: 'Mulai pembangunan', under_review: 'Mulai review', deprecated: 'Tandai usang', planned: 'Rencanakan',
+};
 const transitionLabel = (from, to, resource) => {
   if (ACTION_LABELS[resource]?.[to]) return ACTION_LABELS[resource][to];
   if (to === 'in_progress' && ['resolved', 'pending'].includes(from)) return from === 'resolved' ? 'Buka kembali' : 'Lanjutkan';
   if (to === 'draft' && from !== 'draft') return 'Kembalikan ke draft';
-  if (to === 'cancelled') return 'Batalkan';
-  return STATUS_LABELS[to] || to;
+  return ACTION_VERBS[to] || STATUS_LABELS[to] || to;
 };
-
-function Stepper({ resource, status }) {
-  const flow = STATUS_FLOW[resource];
-  if (!flow) return null;
-  const idx = flow.indexOf(status);
-  const off = idx === -1;
-  return (
-    <div className="stepper" aria-label="Alur status">
-      {flow.map((s, i) => (
-        <span key={s} style={{ display: 'contents' }}>
-          {i > 0 && <span className={`step-line ${!off && i <= idx ? 'done' : ''}`} />}
-          <span className={`step ${!off && i < idx ? 'done' : ''} ${i === idx ? 'current' : ''}`}>
-            <span className="bullet">{!off && i < idx ? <Icon name="check" size="sm" /> : i + 1}</span>{STATUS_LABELS[s]}
-          </span>
-        </span>
-      ))}
-      {off && <><span className="step-line" /><span className="step current"><span className="bullet">!</span>{STATUS_LABELS[status] || status}</span></>}
-    </div>
-  );
-}
 
 export default function ResourceDetail() {
   const { resource, id } = useParams();
@@ -78,6 +73,8 @@ export default function ResourceDetail() {
   const spec = MODULE_DEFS[resource]?.workflow;
   const policy = APPROVALS[resource];
   let transitions = doc.allowedTransitions || [];
+  // Semua langkah yang mungkin dari status ini (untuk panduan), di luar keputusan persetujuan & status otomatis
+  const possible = transitions.filter((t) => !spec?.viaEffect?.includes(t) && !(policy && doc.status === policy.status && [policy.approved, policy.rejected].includes(t)));
   if (!canWrite) {
     // Non-penulis: pemohon/pemilik untuk langkah tertentu, atau peran khusus (mis. verifikator, treasury)
     transitions = transitions.filter((t) =>
@@ -130,23 +127,21 @@ export default function ResourceDetail() {
           </div>
         </div>
         <div className="row end">
-          {transitions.map((t) => (
-            <button key={t} className={`btn ${NEGATIVE.includes(t) ? 'btn-danger' : ''}`} onClick={() => setTransition(t)}>
-              {!NEGATIVE.includes(t) && <Icon name="arrowRight" size="sm" />}{transitionLabel(doc.status, t, resource)}
-            </button>
-          ))}
           {resource === 'catalog-items' && <AddToCart item={doc} />}
           {spawns.length > 0 && <SpawnMenu resource={resource} id={doc._id} spawns={spawns} />}
-          {canWrite && !editing && <button className="btn btn-primary" onClick={() => { setEditing(true); setTab('detail'); }}><Icon name="edit" size="sm" />Edit</button>}
+          {canWrite && !editing && <button className="btn" onClick={() => { setEditing(true); setTab('detail'); }}><Icon name="edit" size="sm" />Edit</button>}
           {canRemove && <button className="btn btn-danger btn-icon" onClick={remove} title="Hapus" aria-label="Hapus"><Icon name="trash" size="sm" /></button>}
         </div>
       </div>
 
-      {STATUS_FLOW[resource] && <div className="card" style={{ padding: '14px 20px' }}><Stepper resource={resource} status={doc.status} /></div>}
+      {doc.status && (STATUS_FLOW[resource] || possible.length > 0) && (
+        <WorkflowPanel resource={resource} doc={doc} allowed={transitions} possible={possible} policy={policy}
+          labelFor={(from, to) => transitionLabel(from, to, resource)} onAction={setTransition} />
+      )}
       {error && <div className="alert"><Icon name="alert" size="sm" />{error}</div>}
 
       {transition && (
-        <TransitionModal mod={mod} doc={doc} to={transition} isStaff={isStaff} onClose={() => setTransition(null)}
+        <TransitionModal resource={resource} mod={mod} doc={doc} to={transition} isStaff={isStaff} onClose={() => setTransition(null)}
           onSubmit={(body) => act(() => api(`/${resource}/${id}/transition`, { method: 'POST', body: { to: transition, ...body } }), `Status diubah menjadi ${STATUS_LABELS[transition]}`)} />
       )}
 
@@ -214,7 +209,8 @@ export default function ResourceDetail() {
   );
 }
 
-function TransitionModal({ mod, doc, to, onSubmit, onClose, isStaff }) {
+function TransitionModal({ resource, mod, doc, to, onSubmit, onClose, isStaff }) {
+  const info = transitionInfo(resource, doc.status, to);
   const keys = mod.transitionFields?.[to] || [];
   const fields = mod.fields.filter((f) => keys.includes(f.key));
   const [values, setValues] = useState(() => Object.fromEntries(keys.map((k) => [k, doc[k]])));
@@ -227,16 +223,28 @@ function TransitionModal({ mod, doc, to, onSubmit, onClose, isStaff }) {
     setBusy(false);
   };
   return (
-    <Modal title={`${STATUS_LABELS[doc.status]} → ${STATUS_LABELS[to]}`} onClose={onClose}>
+    <Modal title={transitionLabel(doc.status, to, resource)} onClose={onClose}>
       <form onSubmit={submit}>
         <div className="modal-body stack">
+          <div className="wf-transition">
+            <Badge tone={STATUS_TONE[doc.status]}>{STATUS_LABELS[doc.status] || doc.status}</Badge>
+            <Icon name="arrowRight" size="sm" />
+            <Badge tone={STATUS_TONE[to]}>{STATUS_LABELS[to] || to}</Badge>
+          </div>
+          {(info?.hint || info?.effect || info?.approval) && (
+            <ul className="wf-meta boxed">
+              {info.hint && <li><Icon name="help" size="sm" />{info.hint}</li>}
+              {info.approval && <li><Icon name="checkSquare" size="sm" />Memulai persetujuan: {info.approval.steps.map((st) => st.name).join(' → ')}</li>}
+              {info.effect && <li className="auto"><Icon name="zap" size="sm" />Otomatis: {info.effect}</li>}
+            </ul>
+          )}
           {fields.length > 0 && <p className="muted small" style={{ margin: 0 }}>Lengkapi informasi berikut sesuai alur kerja {mod.label}.</p>}
           {fields.length > 0 && <FormFields fields={fields} values={values} isStaff={isStaff} onChange={(k, v) => setValues((s) => ({ ...s, [k]: v }))} />}
           <label><span>Catatan (opsional)</span><textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} /></label>
         </div>
         <div className="form-actions">
           <button type="button" className="btn" onClick={onClose}>Batal</button>
-          <button className={`btn ${NEGATIVE.includes(to) ? 'btn-danger' : 'btn-primary'}`} disabled={busy}>Konfirmasi</button>
+          <button className={`btn ${NEGATIVE.includes(to) ? 'btn-danger' : 'btn-primary'}`} disabled={busy}>{transitionLabel(doc.status, to, resource)}</button>
         </div>
       </form>
     </Modal>
@@ -292,8 +300,8 @@ function ApprovalPanel({ resource, policy, doc, user, act }) {
       {waiting && !reason && (
         <div className="row">
           <input className="grow" style={{ width: 'auto' }} placeholder="Komentar (opsional)" value={comment} onChange={(e) => setComment(e.target.value)} />
-          <button className="btn btn-primary" onClick={() => decide('approved')}><Icon name="check" size="sm" />Setujui</button>
-          <button className="btn btn-danger" onClick={() => decide('rejected')}>Tolak</button>
+          <button className="btn btn-success" onClick={() => decide('approved')}><Icon name="check" size="sm" />Setujui</button>
+          <button className="btn btn-danger" onClick={() => decide('rejected')}><Icon name="x" size="sm" />Tolak</button>
         </div>
       )}
       {waiting && reason && <p className="small muted" style={{ margin: 0 }}><Icon name="lock" size="sm" /> {reason}</p>}
@@ -311,7 +319,7 @@ function ApprovalPanel({ resource, policy, doc, user, act }) {
           </ul>
         </details>
       )}
-      <p className="muted small" style={{ marginBottom: 0 }}>Segregation of duties: pembuat/pemohon tidak dapat menyetujui; satu orang satu keputusan per putaran.</p>
+      {!(waiting && reason) && <p className="muted small" style={{ margin: '10px 0 0' }}>Segregation of duties: pembuat/pemohon tidak dapat menyetujui; satu orang satu keputusan per putaran.</p>}
     </div>
   );
 }

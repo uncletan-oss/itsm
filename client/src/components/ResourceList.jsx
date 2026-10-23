@@ -8,6 +8,7 @@ import { STATUS_LABELS, PRIORITY_LABELS } from '../config/labels.js';
 import { FormatValue, refLabel, fmtDate, fmtDateTime } from './format.jsx';
 import Icon from './Icon.jsx';
 import { Empty, PageHeader, SkeletonRows, useToast } from './ui.jsx';
+import { WorkflowButton } from './Workflow.jsx';
 
 const WORKFLOW_STATUSES = {
   incidents: 'new,assigned,in_progress,pending,resolved,closed,cancelled',
@@ -136,6 +137,7 @@ export default function ResourceList() {
         description={mod.description}
         actions={<>
           {mod.board && <button className="btn" onClick={() => setView(view === 'board' ? 'table' : 'board')}><Icon name={view === 'board' ? 'list' : 'kanban'} size="sm" />{view === 'board' ? 'Tabel' : 'Board'}</button>}
+          <WorkflowButton resource={resource} />
           <button className="btn" onClick={doExport}><Icon name="download" size="sm" />Ekspor CSV</button>
           {canCreate && <Link className="btn btn-primary" to={`/m/${resource}/new`}><Icon name="plus" size="sm" />{mod.label} baru</Link>}
         </>}
